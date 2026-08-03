@@ -1,0 +1,1003 @@
+{{define "android/app.build.gradle.kts"}}
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+{{- if .Spec.HasPack "secrets" }}
+import java.util.Properties
+{{- end }}
+
+plugins {
+    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.parcelize)
+}
+{{ if .Spec.HasPack "secrets" }}
+@Suppress("UNCHECKED_CAST")
+val secretsProps = rootProject.extra["secretsProps"] as Properties
+{{ end }}
+android {
+    namespace = "{{ .Spec.Package }}"
+    compileSdk = libs.versions.android.compileSdk.get().toInt()
+    buildToolsVersion = libs.versions.android.buildTools.get()
+
+    defaultConfig {
+        applicationId = "{{ .Spec.ApplicationID }}"
+        minSdk = libs.versions.android.minSdk.get().toInt()
+        targetSdk = libs.versions.android.targetSdk.get().toInt()
+        versionCode = libs.versions.app.versionCode.get().toInt()
+        versionName = libs.versions.app.versionName.get()
+{{- if .Spec.HasPack "secrets" }}
+
+        // Every key in secrets.properties becomes a manifest placeholder, e.g.
+        // ${MAPS_API_KEY} in AndroidManifest.xml. Add a secret to the file and
+        // it is picked up here automatically.
+        // noinspection WrongGradleMethod
+        secretsProps.entries.forEach { entry ->
+            manifestPlaceholders[entry.key.toString()] = entry.value.toString()
+        }
+{{- end }}
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_{{ .Spec.JVMTarget }}
+        targetCompatibility = JavaVersion.VERSION_{{ .Spec.JVMTarget }}
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_{{ .Spec.JVMTarget }}
+    }
+}
+
+dependencies {
+    // Feature modules. `kmp-scaffold add feature` appends here.
+    // kmp-scaffold:feature-deps
+{{- range .Tabs }}
+    implementation(projects.feature.{{ camel .Name }}.api)
+    implementation(projects.feature.{{ camel .Name }}.impl)
+{{- end }}
+
+    // Core modules
+    implementation(projects.core.navigation)
+    implementation(projects.core.ui)
+
+    // Shared business logic
+    implementation(projects.sharedLogic)
+{{- if .Spec.HasAndroidExtra "splash-screen" }}
+
+    // Android core
+    implementation(libs.androidx.core.splashscreen)
+{{- end }}
+
+    // Bundled dependencies
+    implementation(libs.bundles.compose)
+    implementation(libs.bundles.navigation)
+    implementation(libs.bundles.adaptive)
+    implementation(libs.bundles.ui.extras)
+    implementation(libs.bundles.koin)
+
+    implementation(libs.androidx.compose.runtime.saveable)
+    debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // Architecture and core extensions
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+{{- if .Spec.HasPack "images" }}
+
+    // Images
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.ktor)
+{{- end }}
+{{- if .Spec.HasPack "maps" }}
+    implementation(libs.maps.compose)
+{{- end }}
+{{- if .Spec.HasPack "charts" }}
+    implementation(libs.vico.compose)
+    implementation(libs.vico.compose.m3)
+{{- end }}
+{{- if .Spec.HasPack "logger" }}
+    implementation(libs.logger)
+{{- end }}
+{{- if .Spec.HasPack "ble" }}
+    implementation(libs.kable)
+{{- end }}
+
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.testExt.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+}
+{{end}}
+
+
+{{define "android/AndroidManifest.xml"}}
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+{{- if .Spec.HasSharedUtil "network-observer" }}
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+{{- end }}
+{{- if .Spec.HasPack "ble" }}
+
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+{{- end }}
+{{- if .Spec.HasPack "location" }}
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+{{- end }}
+
+    <application
+        android:name=".{{ .Spec.AppClassName }}"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.{{ .Spec.TypePrefix }}.Starting">
+{{- if .Spec.HasPack "maps" }}
+
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
+{{- end }}
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="{{ lowerAlnum .Spec.Name }}" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
+{{end}}
+
+
+{{define "android/proguard-rules.pro"}}
+# Kotlinx serialization keeps its generated serializers via annotations, but R8
+# still needs the companion Serializer objects reachable.
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.**
+
+-keepclassmembers class **$$serializer {
+    *** INSTANCE;
+}
+
+# Navigation 3 restores the back stack by reflecting over Route types.
+-keep class {{ .Spec.Package }}.**.*Route { *; }
+-keep class {{ .Spec.Package }}.**.*Route$* { *; }
+{{end}}
+
+
+{{define "android/strings.xml"}}
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">{{ .Spec.Name }}</string>
+{{- if .Spec.HasAndroidExtra "connectivity-banner" }}
+    <string name="offline_banner">You are offline</string>
+{{- end }}
+</resources>
+{{end}}
+
+
+{{define "android/themes.xml"}}
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+{{- if .Spec.HasAndroidExtra "splash-screen" }}
+    <!--
+      The launch theme. installSplashScreen() swaps to Theme.{{ .Spec.TypePrefix }}
+      as soon as the first frame is ready, so the app never flashes a blank window.
+    -->
+    <style name="Theme.{{ .Spec.TypePrefix }}.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.{{ .Spec.TypePrefix }}</item>
+    </style>
+{{- else }}
+    <style name="Theme.{{ .Spec.TypePrefix }}.Starting" parent="Theme.{{ .Spec.TypePrefix }}" />
+{{- end }}
+
+    <style name="Theme.{{ .Spec.TypePrefix }}" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
+    </style>
+</resources>
+{{end}}
+
+
+{{define "android/ic_launcher_background.xml"}}
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#131314</color>
+</resources>
+{{end}}
+
+
+{{define "android/ic_launcher.xml"}}
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
+{{end}}
+
+
+{{define "android/ic_launcher_round.xml"}}
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
+{{end}}
+
+
+{{define "android/ic_launcher_foreground.xml"}}
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A placeholder mark so the app has a launcher icon from the first build.
+  Replace this with your own artwork (Android Studio: right-click res >
+  New > Image Asset).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 L74,66 L34,66 Z" />
+</vector>
+{{end}}
+
+
+{{define "android/Application.kt"}}
+package {{ .Spec.Package }}
+
+import android.app.Application
+{{- if .Spec.HasPack "images" }}
+import android.content.Context
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.annotation.ExperimentalCoilApi
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import io.ktor.client.HttpClient
+import org.koin.android.ext.android.get
+{{- end }}
+import {{ .Spec.Package }}.di.appModules
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.context.startKoin
+
+class {{ .Spec.AppClassName }} : Application(){{ if .Spec.HasPack "images" }}, SingletonImageLoader.Factory{{ end }} {
+
+    override fun onCreate() {
+        super.onCreate()
+
+        startKoin {
+            androidContext(this@{{ .Spec.AppClassName }})
+            modules(appModules)
+        }
+    }
+{{- if .Spec.HasPack "images" }}
+
+    /**
+     * Coil shares the app's Ktor client, so authentication headers, timeouts
+     * and connection pooling are configured in exactly one place.
+     */
+    @OptIn(ExperimentalCoilApi::class)
+    override fun newImageLoader(context: Context): ImageLoader =
+        ImageLoader.Builder(context)
+            .components {
+                add(KtorNetworkFetcherFactory(get<HttpClient>()))
+            }
+            .build()
+{{- end }}
+}
+{{end}}
+
+
+{{define "android/MainActivity.kt"}}
+package {{ .Spec.Package }}
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+{{- if .Spec.HasAndroidExtra "edge-to-edge" }}
+import androidx.activity.enableEdgeToEdge
+{{- end }}
+{{- if .Spec.HasAndroidExtra "splash-screen" }}
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+{{- end }}
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+{{- if .Spec.HasAndroidExtra "splash-screen" }}
+        installSplashScreen()
+{{- end }}
+{{- if .Spec.HasAndroidExtra "edge-to-edge" }}
+        enableEdgeToEdge()
+{{- end }}
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            App()
+        }
+    }
+}
+{{end}}
+
+
+{{define "android/AppSerializers.kt"}}
+package {{ .Spec.Package }}
+
+import androidx.savedstate.serialization.SavedStateConfiguration
+import {{ .Spec.Package }}.core.navigation.coreNavSerializers
+{{- range .Tabs }}
+import {{ $.Spec.Package }}.feature.{{ .Pkg }}.api.{{ .Camel }}NavSerializers
+{{- end }}
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.plus
+
+/**
+ * Every feature module registers its own Route subclasses next to where they
+ * are defined (see [{{ .Spec.Package }}.core.navigation.routeSerializers]), so
+ * adding a Route only means editing the file you are already in. This file just
+ * sums those contributions - a brand-new feature module adds one line here.
+ */
+val appNavSerializersModule: SerializersModule = listOf(
+    coreNavSerializers,
+{{- range .Tabs }}
+    {{ .Camel }}NavSerializers,
+{{- end }}
+    // kmp-scaffold:serializers
+).reduce { combined, module -> combined + module }
+
+val appNavSavedStateConfiguration: SavedStateConfiguration = SavedStateConfiguration {
+    serializersModule = appNavSerializersModule
+}
+{{end}}
+
+
+{{define "android/App.kt"}}
+{{ $shell := eq .Spec.AndroidLayout "nav3-shell" -}}
+package {{ .Spec.Package }}
+
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
+{{- if .Spec.HasAndroidExtra "snackbar-host" }}
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+{{- end }}
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+{{- if .Spec.HasAndroidExtra "snackbar-host" }}
+import androidx.compose.material3.SnackbarHostState
+{{- end }}
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.ui.NavDisplay
+{{- if .Spec.HasAndroidExtra "nav3-scenes" }}
+import {{ .Spec.Package }}.core.navigation.BottomSheetSceneStrategy
+import {{ .Spec.Package }}.core.navigation.DialogSceneStrategy
+{{- end }}
+import {{ .Spec.Package }}.core.navigation.LocalNavigator
+import {{ .Spec.Package }}.core.navigation.LocalSharedTransitionScope
+import {{ .Spec.Package }}.core.navigation.NavigationState
+import {{ .Spec.Package }}.core.navigation.Navigator
+import {{ .Spec.Package }}.core.navigation.SharedRoute
+import {{ .Spec.Package }}.core.navigation.ShellRoute
+import {{ .Spec.Package }}.core.navigation.rememberNavigationState
+{{- if .Spec.HasAndroidExtra "snackbar-host" }}
+import {{ .Spec.Package }}.core.ui.components.AppSnackbarHost
+{{- end }}
+{{- if .Spec.HasAndroidExtra "connectivity-banner" }}
+import {{ .Spec.Package }}.core.ui.components.ConnectivityBanner
+{{- end }}
+{{- if .Spec.HasAndroidExtra "snackbar-host" }}
+import {{ .Spec.Package }}.core.ui.components.LocalSnackbarHostState
+{{- end }}
+{{- if $shell }}
+import {{ .Spec.Package }}.core.ui.components.ResponsiveNavigationShell
+{{- end }}
+{{- if and (.Spec.HasAndroidExtra "snackbar-host") $shell }}
+import {{ .Spec.Package }}.core.ui.components.rememberSnackbarBottomPadding
+{{- end }}
+import {{ .Spec.Package }}.core.ui.theme.{{ .Spec.ThemeName }}
+{{- range .Tabs }}
+import {{ $.Spec.Package }}.feature.{{ .Pkg }}.api.{{ .Pascal }}Route
+import {{ $.Spec.Package }}.feature.{{ .Pkg }}.impl.{{ .Camel }}Entries
+{{- end }}
+
+/**
+ * The composition root.
+ *
+ * There are two NavDisplays: the outer one owns the global back stack (anything
+ * pushed on top of the shell, plus sheets and dialogs), and the inner one owns
+ * the current root's stack. Keeping them separate is what lets a pushed screen
+ * cover the navigation bar while each tab still remembers its own history.
+ */
+@Composable
+fun App() {
+    {{ .Spec.ThemeName }} {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            val navigationState = rememberNavigationState(
+                startRoot = {{ (first .Spec.RootTabs) | pascal }}Route,
+                roots = setOf(
+{{- range .Tabs }}
+                    {{ .Pascal }}Route,
+{{- end }}
+                    // kmp-scaffold:roots
+                ),
+                savedStateConfiguration = appNavSavedStateConfiguration
+            )
+            val navigator = remember(navigationState) { Navigator(navigationState) }
+{{- if .Spec.HasAndroidExtra "snackbar-host" }}
+            val snackbarHostState = remember { SnackbarHostState() }
+{{- end }}
+{{- if .Spec.HasAndroidExtra "nav3-scenes" }}
+
+            val bottomSheetStrategy = remember { BottomSheetSceneStrategy<NavKey>() }
+            val dialogStrategy = remember { DialogSceneStrategy<NavKey>() }
+{{- end }}
+{{- if and (.Spec.HasAndroidExtra "snackbar-host") $shell }}
+
+            // Whether the shell's own tabs are what is showing, as opposed to a
+            // pushed screen - used to keep the snackbar clear of the nav bar
+            // only while that bar is actually on screen.
+            val isShellActive = navigationState.globalBackStack.lastOrNull() == ShellRoute
+{{- end }}
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                SharedTransitionLayout {
+                    CompositionLocalProvider(
+                        LocalNavigator provides navigator,
+                        LocalSharedTransitionScope provides this@SharedTransitionLayout,
+{{- if .Spec.HasAndroidExtra "snackbar-host" }}
+                        LocalSnackbarHostState provides snackbarHostState,
+{{- end }}
+                    ) {
+                        NavDisplay(
+                            backStack = navigationState.globalBackStack,
+                            onBack = { navigator.goBack() },
+                            transitionSpec = {
+                                slideInHorizontally(tween(400), initialOffsetX = { it }) togetherWith
+                                    slideOutHorizontally(tween(400), targetOffsetX = { -it / 3 })
+                            },
+                            popTransitionSpec = {
+                                slideInHorizontally(tween(400), initialOffsetX = { -it / 3 }) togetherWith
+                                    slideOutHorizontally(tween(400), targetOffsetX = { it })
+                            },
+                            predictivePopTransitionSpec = {
+                                slideInHorizontally(tween(400), initialOffsetX = { -it / 3 }) togetherWith
+                                    slideOutHorizontally(tween(400), targetOffsetX = { it })
+                            },
+{{- if .Spec.HasAndroidExtra "nav3-scenes" }}
+                            sceneStrategies = listOf(bottomSheetStrategy, dialogStrategy),
+{{- end }}
+                            entryProvider = entryProvider {
+                                entry<ShellRoute> {
+                                    SharedRoute {
+{{- if $shell }}
+                                        ResponsiveNavigationShell(navigator = navigator) {
+                                            RootNavDisplay(navigator, navigationState)
+                                        }
+{{- else }}
+                                        RootNavDisplay(navigator, navigationState)
+{{- end }}
+                                    }
+                                }
+
+                                // Screens pushed above the shell go here.
+                                // kmp-scaffold:entries
+                            }
+                        )
+                    }
+                }
+{{- if .Spec.HasAndroidExtra "connectivity-banner" }}
+
+                ConnectivityBanner(modifier = Modifier.align(Alignment.TopCenter))
+{{- end }}
+{{- if .Spec.HasAndroidExtra "snackbar-host" }}
+
+                // A sibling of the whole NavDisplay rather than nested inside the
+                // shell, so it stays mounted across every top-level route.
+                AppSnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+{{- if $shell }}
+                        .padding(bottom = rememberSnackbarBottomPadding(isShellActive))
+{{- end }}
+                )
+{{- end }}
+            }
+        }
+    }
+}
+
+/** The inner display: whichever root tab is currently selected. */
+@Composable
+private fun RootNavDisplay(
+    navigator: Navigator,
+    navigationState: NavigationState,
+) {
+    NavDisplay(
+        backStack = navigationState.currentBackStack,
+        onBack = { navigator.goBack() },
+        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+        entryProvider = entryProvider {
+{{- range .Tabs }}
+            {{ .Camel }}Entries()
+{{- end }}
+            // kmp-scaffold:root-entries
+        }
+    )
+}
+{{end}}
+
+
+{{define "android/core-navigation.build.gradle.kts"}}
+plugins {
+    id("{{ .Spec.Namespace }}.android.compose")
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.parcelize)
+}
+
+android {
+    namespace = "{{ .Spec.Package }}.core.navigation"
+}
+
+dependencies {
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.bundles.navigation)
+    implementation(libs.bundles.adaptive)
+    implementation(libs.androidx.compose.runtime.saveable)
+}
+{{end}}
+
+
+{{define "android/Route.kt"}}
+package {{ .Spec.Package }}.core.navigation
+
+import android.os.Parcelable
+import androidx.navigation3.runtime.NavKey
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.modules.PolymorphicModuleBuilder
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.polymorphic
+import kotlinx.serialization.modules.subclass
+
+/** Where a destination should appear. */
+enum class Presentation {
+    /** Inside the tab shell, so the navigation bar stays visible. */
+    SHELL,
+
+    /** A full-screen destination pushed on top of the shell. */
+    ABOVE_NAV,
+
+    /** A bottom sheet or dialog rendered over whatever is below it. */
+    OVERLAY
+}
+
+/** Every destination in the app. */
+interface Route : NavKey, Parcelable {
+    val presentation: Presentation get() = Presentation.SHELL
+}
+
+/** A destination that is one of the shell's root tabs. */
+interface RootRoute : Route
+
+/** The shell itself: the bottom entry of the global back stack. */
+@Serializable
+@Parcelize
+data object ShellRoute : Route
+
+/**
+ * Registers this module's concrete [Route] types for Navigation 3's polymorphic
+ * back-stack serialization, which is what lets the back stack survive rotation
+ * and process death.
+ *
+ * [Route] is a plain interface spanning many Gradle modules rather than one
+ * sealed hierarchy, so kotlinx.serialization cannot discover its subclasses the
+ * way it would for a sealed class - every concrete Route needs an explicit
+ * `subclass(...)` call. Call this once per feature module, in the same file as
+ * that module's Route definitions, so adding a route and registering it are the
+ * same edit. The app then sums each module's contribution in AppSerializers.kt.
+ */
+fun routeSerializers(builderAction: PolymorphicModuleBuilder<NavKey>.() -> Unit): SerializersModule =
+    SerializersModule { polymorphic(NavKey::class, builderAction = builderAction) }
+
+val coreNavSerializers: SerializersModule = routeSerializers {
+    subclass(ShellRoute::class)
+}
+{{end}}
+
+
+{{define "android/Navigator.kt"}}
+package {{ .Spec.Package }}.core.navigation
+
+import androidx.compose.runtime.staticCompositionLocalOf
+
+/**
+ * The single entry point for navigation.
+ *
+ * Which back stack a destination lands on is decided by its [Presentation]:
+ * SHELL routes go on the current tab's stack, everything else goes on the
+ * global stack so it covers the navigation bar.
+ */
+class Navigator(val state: NavigationState) {
+
+    fun navigate(dest: Route, replace: Boolean = false) {
+        if (replace && dest !is RootRoute) {
+            if (state.globalBackStack.size > 1) {
+                state.globalBackStack.removeAt(state.globalBackStack.lastIndex)
+            } else if (state.currentBackStack.size > 1) {
+                state.currentBackStack.removeAt(state.currentBackStack.lastIndex)
+            }
+        }
+
+        when {
+            dest is RootRoute -> state.currentRoot = dest
+            dest.presentation == Presentation.SHELL -> state.currentBackStack.add(dest)
+            else -> state.globalBackStack.add(dest)
+        }
+    }
+
+    fun goBack() {
+        if (state.globalBackStack.size > 1) {
+            state.globalBackStack.removeAt(state.globalBackStack.lastIndex)
+        } else if (state.currentBackStack.size > 1) {
+            state.currentBackStack.removeAt(state.currentBackStack.lastIndex)
+        }
+    }
+}
+
+val LocalNavigator = staticCompositionLocalOf<Navigator> {
+    error("No Navigator in this composition - App() provides it.")
+}
+{{end}}
+
+
+{{define "android/NavigationState.kt"}}
+package {{ .Spec.Package }}.core.navigation
+
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSerializable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.serialization.NavKeySerializer
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
+import androidx.savedstate.compose.serialization.serializers.MutableStateSerializer
+import androidx.savedstate.serialization.SavedStateConfiguration
+
+/**
+ * Holds one back stack per root tab plus the global stack that sits above them.
+ *
+ * Each tab keeping its own stack is what makes switching tabs preserve where you
+ * were, rather than resetting to the tab's start destination.
+ */
+class NavigationState(
+    val globalBackStack: NavBackStack<NavKey>,
+    val rootBackStacks: Map<RootRoute, NavBackStack<NavKey>>,
+    initialRoot: RootRoute
+) {
+    var currentRoot by mutableStateOf(initialRoot)
+
+    val currentBackStack: NavBackStack<NavKey>
+        get() = rootBackStacks.getValue(currentRoot)
+}
+
+@Composable
+fun rememberNavigationState(
+    startRoot: RootRoute,
+    roots: Set<RootRoute>,
+    savedStateConfiguration: SavedStateConfiguration
+): NavigationState {
+    val currentRootState = rememberSerializable(
+        startRoot, roots,
+        serializer = MutableStateSerializer(NavKeySerializer()),
+        configuration = savedStateConfiguration
+    ) {
+        mutableStateOf(startRoot)
+    }
+
+    val globalBackStack = rememberNavBackStack(savedStateConfiguration, ShellRoute)
+    val backStacks = roots.associateWith { root ->
+        rememberNavBackStack(savedStateConfiguration, root)
+    }
+
+    return remember(startRoot, roots) {
+        NavigationState(
+            globalBackStack = globalBackStack,
+            rootBackStacks = backStacks,
+            initialRoot = startRoot
+        ).apply {
+            currentRoot = currentRootState.value
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+val LocalSharedTransitionScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
+
+val LocalSafeAnimatedVisibilityScope = staticCompositionLocalOf<AnimatedVisibilityScope?> { null }
+
+/**
+ * Applies a shared-element transition using whichever scopes are in the current
+ * composition, and quietly does nothing when there are none - so a composable
+ * using this still renders in a @Preview or a test.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun Modifier.sharedElementProvider(key: Any): Modifier {
+    val sharedTransitionScope = LocalSharedTransitionScope.current ?: return this
+    val animatedVisibilityScope = LocalSafeAnimatedVisibilityScope.current ?: return this
+
+    return with(sharedTransitionScope) {
+        this@sharedElementProvider.sharedElement(
+            rememberSharedContentState(key = key),
+            animatedVisibilityScope = animatedVisibilityScope
+        )
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun Modifier.sharedBoundsProvider(key: Any): Modifier {
+    val sharedTransitionScope = LocalSharedTransitionScope.current ?: return this
+    val animatedVisibilityScope = LocalSafeAnimatedVisibilityScope.current ?: return this
+
+    return with(sharedTransitionScope) {
+        this@sharedBoundsProvider.sharedBounds(
+            rememberSharedContentState(key = key),
+            animatedVisibilityScope = animatedVisibilityScope
+        )
+    }
+}
+
+/** Wrap a nav entry's content in this to make shared transitions available to it. */
+@Composable
+fun SharedRoute(content: @Composable () -> Unit) {
+    CompositionLocalProvider(
+        LocalSafeAnimatedVisibilityScope provides LocalNavAnimatedContentScope.current
+    ) {
+        content()
+    }
+}
+{{end}}
+
+
+{{define "android/NavigationScenes.kt"}}
+package {{ .Spec.Package }}.core.navigation
+
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.NavMetadataKey
+import androidx.navigation3.runtime.get
+import androidx.navigation3.runtime.metadata
+import androidx.navigation3.scene.OverlayScene
+import androidx.navigation3.scene.Scene
+import androidx.navigation3.scene.SceneStrategy
+import androidx.navigation3.scene.SceneStrategyScope
+import kotlinx.coroutines.launch
+
+/**
+ * Lets modal content dismiss itself with the sheet's own animation rather than
+ * snapping away when the back stack pops.
+ */
+val LocalSheetDismissal = staticCompositionLocalOf<(() -> Unit)?> { null }
+
+/**
+ * Renders one entry inside a [ModalBottomSheet].
+ *
+ * This is an [OverlayScene] rather than a plain Scene: the entries underneath
+ * stay composed and visible through the scrim, which is what makes a sheet feel
+ * like it is over the current screen instead of replacing it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+internal class BottomSheetScene<T : Any>(
+    override val key: Any,
+    override val previousEntries: List<NavEntry<T>>,
+    override val overlaidEntries: List<NavEntry<T>>,
+    private val entry: NavEntry<T>,
+    private val properties: ModalBottomSheetProperties,
+    private val enabledValues: Set<SheetValue>,
+    private val onBack: () -> Unit,
+) : OverlayScene<T> {
+
+    override val entries: List<NavEntry<T>> = listOf(entry)
+
+    override val content: @Composable (() -> Unit) = {
+        val scope = rememberCoroutineScope()
+        val sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = enabledValues,
+        )
+
+        ModalBottomSheet(
+            // The system back gesture and scrim taps already animate the sheet
+            // down before this fires, so they can pop directly.
+            onDismissRequest = onBack,
+            sheetState = sheetState,
+            properties = properties,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            CompositionLocalProvider(
+                LocalSheetDismissal provides {
+                    scope.launch {
+                        sheetState.hide()
+                        onBack()
+                    }
+                    Unit
+                }
+            ) {
+                entry.Content()
+            }
+        }
+    }
+}
+
+/** Presents entries tagged with [BottomSheetSceneStrategy.bottomSheet] as sheets. */
+@OptIn(ExperimentalMaterial3Api::class)
+class BottomSheetSceneStrategy<T : Any> : SceneStrategy<T> {
+
+    override fun SceneStrategyScope<T>.calculateScene(entries: List<NavEntry<T>>): Scene<T>? {
+        val lastEntry = entries.lastOrNull() ?: return null
+        val properties = lastEntry.metadata[PropertiesKey] ?: return null
+        val enabledValues = lastEntry.metadata[EnabledValuesKey] ?: return null
+
+        return BottomSheetScene(
+            key = lastEntry.contentKey,
+            previousEntries = entries.dropLast(1),
+            overlaidEntries = entries.dropLast(1),
+            entry = lastEntry,
+            properties = properties,
+            enabledValues = enabledValues,
+            onBack = onBack
+        )
+    }
+
+    companion object {
+        fun bottomSheet(
+            properties: ModalBottomSheetProperties = ModalBottomSheetProperties(),
+            enabledValues: Set<SheetValue> = setOf(
+                SheetValue.Hidden,
+                SheetValue.PartiallyExpanded,
+                SheetValue.Expanded
+            ),
+        ) = metadata {
+            put(PropertiesKey, properties)
+            put(EnabledValuesKey, enabledValues)
+        }
+
+        /** Full height only - no partial-expand resting state. */
+        val FullHeightOnly = setOf(SheetValue.Hidden, SheetValue.Expanded)
+
+        private object PropertiesKey : NavMetadataKey<ModalBottomSheetProperties>
+        private object EnabledValuesKey : NavMetadataKey<Set<SheetValue>>
+    }
+}
+
+internal class DialogScene<T : Any>(
+    override val key: Any,
+    override val previousEntries: List<NavEntry<T>>,
+    override val overlaidEntries: List<NavEntry<T>>,
+    private val entry: NavEntry<T>,
+    private val properties: DialogProperties,
+    private val onBack: () -> Unit,
+) : OverlayScene<T> {
+
+    override val entries: List<NavEntry<T>> = listOf(entry)
+
+    override val content: @Composable (() -> Unit) = {
+        Dialog(onDismissRequest = onBack, properties = properties) {
+            entry.Content()
+        }
+    }
+}
+
+/** Presents entries tagged with [DialogSceneStrategy.dialog] as dialogs. */
+class DialogSceneStrategy<T : Any> : SceneStrategy<T> {
+
+    override fun SceneStrategyScope<T>.calculateScene(entries: List<NavEntry<T>>): Scene<T>? {
+        val lastEntry = entries.lastOrNull() ?: return null
+        val properties = lastEntry.metadata[PropertiesKey] ?: return null
+
+        return DialogScene(
+            key = lastEntry.contentKey,
+            previousEntries = entries.dropLast(1),
+            overlaidEntries = entries.dropLast(1),
+            entry = lastEntry,
+            properties = properties,
+            onBack = onBack
+        )
+    }
+
+    companion object {
+        fun dialog(properties: DialogProperties = DialogProperties()) =
+            metadata { put(PropertiesKey, properties) }
+
+        private object PropertiesKey : NavMetadataKey<DialogProperties>
+    }
+}
+{{end}}

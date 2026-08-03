@@ -1,0 +1,188 @@
+# Adding features
+
+```bash
+cd my-app
+kmp-scaffold add feature
+```
+
+The wizard asks four things: the name, whether you want the Android module, the
+shared logic, or both, and how the screen should appear. Then it shows you every
+file it will create and every file it will edit, before touching anything.
+
+Run it from anywhere inside the project — it finds the root by walking up to
+`.kmp-scaffold.json`.
+
+## Naming
+
+Lowercase kebab-case: `billing`, `firmware-update`, `drive-logger`.
+
+The name is transformed consistently everywhere it appears, and the differences
+matter:
+
+| Where | `firmware-update` becomes |
+| --- | --- |
+| Gradle path | `:feature:firmware-update:api` |
+| Gradle type-safe accessor | `projects.feature.firmwareUpdate.api` |
+| Kotlin package | `com.example.app.feature.firmwareupdate.api` |
+| Types | `FirmwareUpdateRoute`, `FirmwareUpdateScreen` |
+| Functions | `firmwareUpdateEntries()`, `firmwareUpdateNavSerializers` |
+
+The camel-cased Gradle accessor for a kebab-cased module is the one that trips
+people up when adding a module by hand.
+
+## What gets created
+
+**Android module** (`--android-only` for just this):
+
+```
+feature/<name>/api/build.gradle.kts
+feature/<name>/api/src/main/kotlin/…/api/<Name>Route.kt
+feature/<name>/impl/build.gradle.kts
+feature/<name>/impl/src/main/kotlin/…/impl/<Name>Navigation.kt
+feature/<name>/impl/src/main/kotlin/…/impl/<Name>Screen.kt
+```
+
+**Shared logic** (`--shared-only` for just this):
+
+```
+sharedLogic/…/feature/<name>/domain/<Name>Repository.kt
+sharedLogic/…/feature/<name>/data/<Name>RepositoryImpl.kt
+sharedLogic/…/feature/<name>/presentation/<Name>ViewModel.kt
+sharedLogic/…/feature/<name>/di/<Name>Module.kt
+```
+
+Most features want both. If a feature reuses another feature's ViewModel, take
+the Android module only.
+
+## What gets wired
+
+This is the part that is tedious to do by hand and easy to half-finish:
+
+| File | What is added |
+| --- | --- |
+| `settings.gradle.kts` | `include(":feature:<name>:api")` and `:impl` |
+| `androidApp/build.gradle.kts` | `implementation(projects.feature.<name>.api)` and `.impl` |
+| `buildSrc/…android.feature.gradle.kts` | The new `api` module, so other features can navigate to it |
+| `androidApp/…/AppSerializers.kt` | `<name>NavSerializers`, plus its import |
+| `androidApp/…/App.kt` | `<name>Entries()`, plus its import |
+| `sharedLogic/…/di/SharedModules.kt` | `<name>Module` in the `includes(...)` list |
+
+The serializer registration is the one worth knowing about. Without it the
+screen still works, but the back stack silently fails to save — navigate to the
+screen, rotate the device, and you are back at the start destination. See
+[Project layout](project-layout.md#corenavigation) for why.
+
+Insertions are idempotent: nothing is duplicated if a line is already there.
+
+## How the screen appears
+
+The wizard's third question sets the route's `Presentation`, which decides which
+back stack it lands on.
+
+### Full screen (`--presentation above-nav`)
+
+The default. Pushed on top of the shell, covering the navigation bar.
+
+```kotlin
+@Serializable @Parcelize
+data object BillingRoute : Route {
+    @IgnoredOnParcel
+    override val presentation = Presentation.ABOVE_NAV
+}
+```
+
+### Bottom sheet (`--presentation overlay`)
+
+A modal sheet over the current screen. The generated `Navigation.kt` tags the
+entry so the sheet scene strategy picks it up:
+
+```kotlin
+entry<BillingRoute>(
+    metadata = BottomSheetSceneStrategy.bottomSheet(
+        enabledValues = BottomSheetSceneStrategy.FullHeightOnly
+    )
+) {
+    BillingScreen()
+}
+```
+
+Content inside a sheet can dismiss itself smoothly through `LocalSheetDismissal`,
+which animates the sheet down before popping the stack rather than snapping it
+away.
+
+### Dialog (`--presentation dialog`)
+
+The same idea, using the dialog scene strategy.
+
+### Root tab (`--presentation shell`)
+
+Only available with the adaptive shell layout. As well as the usual wiring, a
+root tab is added to:
+
+- the `roots` set in `App.kt`, which is what gives it its own back stack;
+- `NavigationItemsList` in `core/ui/…/Navigation.kt`, with a Material Symbols
+  icon guessed from the name;
+- `core/ui/build.gradle.kts`, since the item list references the route.
+
+Its `entries()` call goes into the per-tab entry provider rather than the global
+one — a tab is inside the shell, not on top of it.
+
+Root tabs are also the thing to be sparing with: more than five or six will not
+fit a phone-width bar.
+
+## Navigating to it
+
+From any screen:
+
+```kotlin
+val navigator = LocalNavigator.current
+navigator.navigate(BillingRoute)
+```
+
+`impl` modules can reach every other feature's `api` module through the
+`android.feature` convention plugin, so no build-file change is needed to
+navigate somewhere new.
+
+To replace the current screen rather than pushing on top of it:
+
+```kotlin
+navigator.navigate(BillingRoute, replace = true)
+```
+
+## Filling in the generated code
+
+The generated screen is a placeholder with the wiring done. The generated
+repository returns a canned value and points at where the real call goes:
+
+```kotlin
+override suspend fun load(): Result<String> = runCatching {
+    // TODO: replace with a real call, e.g.
+    // client.get("$BASE_URL/billing").body<BillingResponse>()
+    "Billing is wired up"
+}
+```
+
+The ViewModel already has the loading/error shape most screens need, and the
+screen already collects it with `collectAsStateWithLifecycle`.
+
+## Non-interactive
+
+```bash
+kmp-scaffold add feature billing --yes
+kmp-scaffold add feature billing --yes --presentation overlay
+kmp-scaffold add feature billing --yes --android-only
+kmp-scaffold add feature billing --dry-run     # see the plan first
+```
+
+## If a wiring point is missing
+
+If you have reorganised a file and removed an anchor comment, the tool says so
+rather than failing:
+
+```
+! could not find a kmp-scaffold anchor comment in androidApp/src/main/kotlin/…/App.kt
+  - wire the new module in by hand
+```
+
+Everything else is still generated and wired. Either paste the anchor comment
+back where you want future insertions to go, or add the one line by hand.

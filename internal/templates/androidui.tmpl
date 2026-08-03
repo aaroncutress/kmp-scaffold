@@ -1,0 +1,1138 @@
+{{define "android/core-ui.build.gradle.kts"}}
+plugins {
+    id("{{ .Spec.Namespace }}.android.compose")
+}
+
+android {
+    namespace = "{{ .Spec.Package }}.core.ui"
+}
+
+dependencies {
+    implementation(projects.core.navigation)
+    implementation(projects.sharedLogic)
+
+    // kmp-scaffold:feature-apis
+{{- range .Tabs }}
+    implementation(projects.feature.{{ camel .Name }}.api)
+{{- end }}
+
+    implementation(libs.bundles.adaptive)
+    implementation(libs.bundles.ui.extras)
+    implementation(libs.bundles.koin)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.kotlinx.datetime)
+{{- if .Spec.HasPack "images" }}
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.ktor)
+{{- end }}
+}
+{{end}}
+
+
+{{define "android/Theme.kt"}}
+package {{ .Spec.Package }}.core.ui.theme
+
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.platform.LocalContext
+
+/**
+ * The app theme.
+ *
+ * `dynamicColor` follows the user's wallpaper on Android 12+. Turn it off to
+ * keep the brand palette in [{{ .Spec.TypePrefix }}LightColorScheme] /
+ * [{{ .Spec.TypePrefix }}DarkColorScheme] on every device.
+ */
+@Composable
+fun {{ .Spec.ThemeName }}(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val colorScheme: ColorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+
+        darkTheme -> {{ .Spec.TypePrefix }}DarkColorScheme
+        else -> {{ .Spec.TypePrefix }}LightColorScheme
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = {{ .Spec.TypePrefix }}Typography,
+        shapes = {{ .Spec.TypePrefix }}Shapes,
+        content = content
+    )
+}
+
+/**
+ * Theme accessors, including the ones Material does not provide.
+ *
+ * Reading `{{ .Spec.ThemeName }}.spacing.md` rather than a raw `16.dp` is what
+ * keeps spacing consistent when the design changes.
+ */
+object {{ .Spec.ThemeName }} {
+    val colorScheme: ColorScheme
+        @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme
+
+    val typography: Typography
+        @Composable @ReadOnlyComposable get() = MaterialTheme.typography
+
+    val shapes: Shapes
+        @Composable @ReadOnlyComposable get() = MaterialTheme.shapes
+
+    val spacing = SpacingTokens
+    val borders = BorderTokens
+    val opacities = OpacityTokens
+}
+{{end}}
+
+
+{{define "android/Colours.kt"}}
+package {{ .Spec.Package }}.core.ui.theme
+
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+
+// A neutral starting palette. Replace these with your brand colours - the
+// Material Theme Builder (https://material-foundation.github.io/material-theme-builder/)
+// exports exactly this shape.
+
+val {{ .Spec.TypePrefix }}LightColorScheme = lightColorScheme(
+    primary = Color(0xFF4A5C92),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFDBE1FF),
+    onPrimaryContainer = Color(0xFF001944),
+    secondary = Color(0xFF585E71),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFDDE2F9),
+    onSecondaryContainer = Color(0xFF151B2C),
+    tertiary = Color(0xFF745470),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFFFD7F5),
+    onTertiaryContainer = Color(0xFF2B122B),
+    background = Color(0xFFFAF8FF),
+    onBackground = Color(0xFF1A1B21),
+    surface = Color(0xFFFAF8FF),
+    onSurface = Color(0xFF1A1B21),
+    surfaceVariant = Color(0xFFE1E2EC),
+    onSurfaceVariant = Color(0xFF44464F),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF4F3FA),
+    surfaceContainer = Color(0xFFEEEDF4),
+    surfaceContainerHigh = Color(0xFFE9E7EF),
+    surfaceContainerHighest = Color(0xFFE3E2E9),
+    outline = Color(0xFF757780),
+    outlineVariant = Color(0xFFC5C6D0),
+    error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+    scrim = Color(0xFF000000),
+)
+
+val {{ .Spec.TypePrefix }}DarkColorScheme = darkColorScheme(
+    primary = Color(0xFFB3C5FF),
+    onPrimary = Color(0xFF1B2D61),
+    primaryContainer = Color(0xFF324479),
+    onPrimaryContainer = Color(0xFFDBE1FF),
+    secondary = Color(0xFFC0C6DC),
+    onSecondary = Color(0xFF2A3042),
+    secondaryContainer = Color(0xFF404659),
+    onSecondaryContainer = Color(0xFFDDE2F9),
+    tertiary = Color(0xFFE2BBDA),
+    onTertiary = Color(0xFF422740),
+    tertiaryContainer = Color(0xFF5A3D57),
+    onTertiaryContainer = Color(0xFFFFD7F5),
+    background = Color(0xFF121318),
+    onBackground = Color(0xFFE3E2E9),
+    surface = Color(0xFF121318),
+    onSurface = Color(0xFFE3E2E9),
+    surfaceVariant = Color(0xFF44464F),
+    onSurfaceVariant = Color(0xFFC5C6D0),
+    surfaceContainerLowest = Color(0xFF0D0E13),
+    surfaceContainerLow = Color(0xFF1A1B21),
+    surfaceContainer = Color(0xFF1E1F25),
+    surfaceContainerHigh = Color(0xFF292A2F),
+    surfaceContainerHighest = Color(0xFF34343A),
+    outline = Color(0xFF8F9099),
+    outlineVariant = Color(0xFF44464F),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    scrim = Color(0xFF000000),
+)
+{{end}}
+
+
+{{define "android/Typography.kt"}}
+package {{ .Spec.Package }}.core.ui.theme
+
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
+// The default system family. To use a custom (or variable) font, drop the file
+// into core/ui/src/main/res/font/ and build a FontFamily here - every style
+// below picks it up.
+private val AppFontFamily = FontFamily.Default
+
+val {{ .Spec.TypePrefix }}Typography = Typography(
+    displayLarge = TextStyle(fontFamily = AppFontFamily, fontSize = 57.sp, lineHeight = 64.sp, fontWeight = FontWeight.Normal),
+    displayMedium = TextStyle(fontFamily = AppFontFamily, fontSize = 45.sp, lineHeight = 52.sp, fontWeight = FontWeight.Normal),
+    displaySmall = TextStyle(fontFamily = AppFontFamily, fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.Normal),
+
+    headlineLarge = TextStyle(fontFamily = AppFontFamily, fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.Normal),
+    headlineMedium = TextStyle(fontFamily = AppFontFamily, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Normal),
+    headlineSmall = TextStyle(fontFamily = AppFontFamily, fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Normal),
+
+    titleLarge = TextStyle(fontFamily = AppFontFamily, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium),
+    titleMedium = TextStyle(fontFamily = AppFontFamily, fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
+    titleSmall = TextStyle(fontFamily = AppFontFamily, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
+
+    bodyLarge = TextStyle(fontFamily = AppFontFamily, fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal),
+    bodyMedium = TextStyle(fontFamily = AppFontFamily, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal),
+    bodySmall = TextStyle(fontFamily = AppFontFamily, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Normal),
+
+    labelLarge = TextStyle(fontFamily = AppFontFamily, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
+    labelMedium = TextStyle(fontFamily = AppFontFamily, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
+    labelSmall = TextStyle(fontFamily = AppFontFamily, fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
+)
+{{end}}
+
+
+{{define "android/Shapes.kt"}}
+package {{ .Spec.Package }}.core.ui.theme
+
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
+import androidx.compose.ui.unit.dp
+
+val {{ .Spec.TypePrefix }}Shapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),  // chips, small affordances
+    small = RoundedCornerShape(8.dp),       // buttons and fields
+    medium = RoundedCornerShape(12.dp),     // cards
+    large = RoundedCornerShape(16.dp),      // sheets and overlays
+    extraLarge = RoundedCornerShape(24.dp)  // structural panels
+)
+{{end}}
+
+
+{{define "android/Tokens.kt"}}
+package {{ .Spec.Package }}.core.ui.theme
+
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+/**
+ * Design tokens Material does not define. Reach for these instead of literal
+ * dp values so spacing stays consistent and is changeable in one place.
+ */
+object SpacingTokens {
+    val none: Dp = 0.dp
+    val xxs: Dp = 2.dp
+    val xs: Dp = 4.dp
+    val sm: Dp = 8.dp
+    val md: Dp = 16.dp
+    val lg: Dp = 24.dp
+    val xl: Dp = 32.dp
+    val xxl: Dp = 48.dp
+    val xxxl: Dp = 64.dp
+    val hero: Dp = 128.dp
+}
+
+object BorderTokens {
+    val none: Dp = 0.dp
+    val thin: Dp = 1.dp
+    val thick: Dp = 2.dp
+}
+
+object OpacityTokens {
+    const val HOVER = 0.04f
+    const val FOCUS = 0.12f
+    const val PRESSED = 0.16f
+    const val DRAGGED = 0.08f
+    const val DISABLED = 0.38f
+    const val OVERLAY = 0.40f
+}
+{{end}}
+
+
+{{define "android/Snackbar.kt"}}
+package {{ .Spec.Package }}.core.ui.components
+
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import {{ .Spec.Package }}.core.ui.theme.{{ .Spec.ThemeName }}
+
+/**
+ * The app-wide snackbar host state, so any screen can post a message without
+ * threading a parameter down through every composable between it and the root.
+ */
+val LocalSnackbarHostState = staticCompositionLocalOf<SnackbarHostState> {
+    error("No SnackbarHostState in this composition - App() provides it.")
+}
+
+@Composable
+fun AppSnackbarHost(
+    hostState: SnackbarHostState,
+    modifier: Modifier = Modifier,
+) {
+    SnackbarHost(
+        hostState = hostState,
+        modifier = modifier.padding(horizontal = {{ .Spec.ThemeName }}.spacing.md)
+    ) { data ->
+        Snackbar(
+            snackbarData = data,
+            shape = MaterialTheme.shapes.large,
+            containerColor = MaterialTheme.colorScheme.inverseSurface,
+            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+            actionColor = MaterialTheme.colorScheme.inversePrimary,
+        )
+    }
+}
+{{end}}
+
+
+{{define "android/ConnectivityBanner.kt"}}
+package {{ .Spec.Package }}.core.ui.components
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import {{ .Spec.Package }}.core.ui.theme.{{ .Spec.ThemeName }}
+import {{ .Spec.Package }}.core.util.NetworkViewModel
+import org.koin.compose.viewmodel.koinViewModel
+
+/**
+ * Shows while the device has no internet connection.
+ *
+ * The state comes from the shared [NetworkViewModel], so Android and iOS agree
+ * on what "offline" means rather than each having their own definition.
+ */
+@Composable
+fun ConnectivityBanner(
+    modifier: Modifier = Modifier,
+    viewModel: NetworkViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    AnimatedVisibility(
+        visible = !state.isOnline,
+        enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+        modifier = modifier
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = {{ .Spec.ThemeName }}.spacing.md,
+                        vertical = {{ .Spec.ThemeName }}.spacing.sm
+                    ),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "You are offline",
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
+    }
+}
+{{end}}
+
+
+{{define "android/Navigation.kt"}}
+package {{ .Spec.Package }}.core.ui.components
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.window.core.layout.WindowSizeClass
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.rounded.Menu
+{{- range .Tabs }}
+import com.composables.icons.materialsymbols.rounded.{{ .Icon }}
+{{- end }}
+import {{ .Spec.Package }}.core.navigation.Navigator
+import {{ .Spec.Package }}.core.navigation.RootRoute
+import {{ .Spec.Package }}.core.ui.theme.{{ .Spec.ThemeName }}
+{{- range .Tabs }}
+import {{ $.Spec.Package }}.feature.{{ .Pkg }}.api.{{ .Pascal }}Route
+{{- end }}
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
+
+data class AppNavigationItem(
+    val route: RootRoute,
+    val label: String,
+    val icon: ImageVector,
+    /** Pushes this item (and the ones after it) to the bottom of a rail or drawer. */
+    val alignBottom: Boolean = false
+)
+
+/** The root destinations, in the order they appear. Edit this to reorder tabs. */
+val NavigationItemsList = listOf(
+{{- range .Tabs }}
+    AppNavigationItem({{ .Pascal }}Route, "{{ .Label }}", MaterialSymbols.Rounded.{{ .Icon }}),
+{{- end }}
+    // kmp-scaffold:nav-items
+)
+
+/**
+ * Bottom inset reserved by the floating navigation bar.
+ *
+ * Screens inside the shell should add this to their scrollable content's
+ * *content padding*, not as an outer Modifier - that way content scrolls and
+ * fades behind the bar instead of being clipped above it. It is zero on wide
+ * layouts, where the navigation is at the side instead.
+ */
+val LocalNavigationBarsInset = compositionLocalOf<Dp> { 0.dp }
+
+/**
+ * The adaptive navigation container.
+ *
+ * Compact widths get a floating bottom bar, medium widths an expandable rail,
+ * and large widths a permanent drawer. The content slot holds the NavDisplay
+ * itself and is never torn down when the layout changes, so navigation
+ * transitions survive a rotation or a window resize.
+ */
+@Composable
+fun ResponsiveNavigationShell(
+    navigator: Navigator,
+    showShell: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val isExtraLarge =
+        windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXTRA_LARGE_LOWER_BOUND)
+    val isLarge =
+        windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_LARGE_LOWER_BOUND)
+    val isMedium =
+        windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+
+    Row(modifier = Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = showShell,
+            enter = expandHorizontally(expandFrom = Alignment.Start) + fadeIn(),
+            exit = shrinkHorizontally(shrinkTowards = Alignment.Start) + fadeOut()
+        ) {
+            when {
+                isLarge || isExtraLarge -> PermanentNavDrawer(navigator)
+                isMedium -> ExpandableNavRail(navigator)
+            }
+        }
+
+        val sideNavActive = showShell && (isMedium || isLarge || isExtraLarge)
+        val consumedInsets = if (sideNavActive) {
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
+        } else {
+            WindowInsets(0, 0, 0, 0)
+        }
+
+        val navBarInset = if (!isMedium && showShell) {
+            WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() +
+                {{ .Spec.ThemeName }}.spacing.xxxl + {{ .Spec.ThemeName }}.spacing.md
+        } else {
+            0.dp
+        }
+
+        CompositionLocalProvider(LocalNavigationBarsInset provides navBarInset) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .consumeWindowInsets(consumedInsets)
+            ) {
+                content()
+
+                if (!isMedium) {
+                    // A soft fade so scrolling content does not cut off abruptly
+                    // behind the floating bar.
+                    this@Row.AnimatedVisibility(
+                        visible = showShell,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(navBarInset)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            MaterialTheme.colorScheme.background.copy(alpha = 0.85f),
+                                            MaterialTheme.colorScheme.background
+                                        )
+                                    )
+                                )
+                        )
+                    }
+
+                    this@Row.AnimatedVisibility(
+                        visible = showShell,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                    ) {
+                        FloatingNavBar(navigator = navigator)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Clearance a global SnackbarHost needs to sit above [FloatingNavBar]. Only
+ * non-zero while the shell's own tabs are showing on a compact width, since
+ * that is the only time the floating bar is on screen.
+ */
+@Composable
+fun rememberSnackbarBottomPadding(isShellActive: Boolean): Dp {
+    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val isCompact =
+        !windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+    return if (isShellActive && isCompact) {
+        {{ .Spec.ThemeName }}.spacing.xxxl + {{ .Spec.ThemeName }}.spacing.xl
+    } else {
+        0.dp
+    }
+}
+
+/**
+ * The compact-width navigation bar.
+ *
+ * The selection pill follows your finger while dragging (with a haptic tick per
+ * item crossed) and only commits the navigation on release, so a mis-aimed tap
+ * can be corrected without leaving the current screen.
+ */
+@Composable
+fun FloatingNavBar(
+    navigator: Navigator,
+    modifier: Modifier = Modifier,
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+
+    var containerWidth by remember { mutableIntStateOf(0) }
+    val itemWidth = if (NavigationItemsList.isNotEmpty() && containerWidth > 0) {
+        containerWidth / NavigationItemsList.size.toFloat()
+    } else {
+        0f
+    }
+
+    val initialIndex = NavigationItemsList
+        .indexOfFirst { it.route == navigator.state.currentRoot }
+        .coerceAtLeast(0)
+
+    val animatedOffset = remember { Animatable(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    var activeIndex by remember { mutableIntStateOf(initialIndex) }
+    var initialised by remember { mutableStateOf(false) }
+
+    LaunchedEffect(navigator.state.currentRoot, itemWidth) {
+        val newIndex = NavigationItemsList
+            .indexOfFirst { it.route == navigator.state.currentRoot }
+            .coerceAtLeast(0)
+        activeIndex = newIndex
+
+        if (itemWidth <= 0f) return@LaunchedEffect
+        val targetX = newIndex * itemWidth
+        if (!initialised) {
+            // Snap on first layout, otherwise the pill flies in from zero.
+            animatedOffset.snapTo(targetX)
+            initialised = true
+        } else if (!isDragging && animatedOffset.targetValue != targetX) {
+            animatedOffset.animateTo(
+                targetX,
+                spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.76f)
+            )
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+            )
+            .padding(
+                start = {{ .Spec.ThemeName }}.spacing.xl,
+                end = {{ .Spec.ThemeName }}.spacing.xl,
+                bottom = {{ .Spec.ThemeName }}.spacing.md
+            )
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            tonalElevation = 4.dp,
+            modifier = Modifier.height({{ .Spec.ThemeName }}.spacing.xxxl)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .onSizeChanged { containerWidth = it.width }
+                    .pointerInput(itemWidth) {
+                        if (itemWidth <= 0f) return@pointerInput
+                        awaitEachGesture {
+                            val down = awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial
+                            )
+                            isDragging = true
+
+                            val maxOffset = containerWidth - itemWidth
+                            // Past either end the pill only moves a quarter as
+                            // far, which reads as resistance rather than a stop.
+                            fun rubberBand(raw: Float): Float = when {
+                                raw < 0f -> raw * 0.25f
+                                raw > maxOffset -> maxOffset + (raw - maxOffset) * 0.25f
+                                else -> raw
+                            }
+
+                            var lastIndex = (down.position.x / itemWidth).toInt()
+                                .coerceIn(0, NavigationItemsList.lastIndex)
+                            activeIndex = lastIndex
+
+                            coroutineScope.launch {
+                                animatedOffset.animateTo(
+                                    rubberBand(down.position.x - itemWidth / 2),
+                                    spring(stiffness = 1000f, dampingRatio = 0.85f)
+                                )
+                            }
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+
+                            do {
+                                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull()
+                                if (change != null && change.pressed) {
+                                    val dragX = change.position.x
+                                    coroutineScope.launch {
+                                        animatedOffset.animateTo(
+                                            rubberBand(dragX - itemWidth / 2),
+                                            spring(stiffness = 1000f, dampingRatio = 0.85f)
+                                        )
+                                    }
+
+                                    val hovered = (dragX / itemWidth).toInt()
+                                        .coerceIn(0, NavigationItemsList.lastIndex)
+                                    if (hovered != lastIndex) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                        lastIndex = hovered
+                                        activeIndex = hovered
+                                    }
+                                    // Only claim the gesture once it is clearly a
+                                    // drag, so plain taps still behave as taps.
+                                    if (abs(dragX - down.position.x) > 4f) {
+                                        change.consume()
+                                    }
+                                }
+                            } while (event.changes.any { it.pressed })
+
+                            isDragging = false
+
+                            val nearest = activeIndex
+                            coroutineScope.launch {
+                                launch {
+                                    animatedOffset.animateTo(
+                                        nearest * itemWidth,
+                                        spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.76f)
+                                    )
+                                }
+                                // Let the pill start moving before the screen
+                                // swaps underneath it.
+                                delay(50.milliseconds)
+                                navigator.navigate(NavigationItemsList[nearest].route)
+                            }
+                        }
+                    }
+            ) {
+                if (containerWidth > 0) {
+                    val maxOffset = containerWidth - itemWidth
+                    val currentOffset = animatedOffset.value
+                    val clamped = currentOffset.coerceIn(0f, maxOffset)
+
+                    // Squash the pill horizontally when it is dragged past an end.
+                    val scaleX = when {
+                        currentOffset < 0f -> 1f + (currentOffset / itemWidth) * 0.5f
+                        currentOffset > maxOffset -> 1f - ((currentOffset - maxOffset) / itemWidth) * 0.5f
+                        else -> 1f
+                    }.coerceIn(0.65f, 1f)
+
+                    val originX = when {
+                        currentOffset < 0f -> 0f
+                        currentOffset > maxOffset -> 1f
+                        else -> 0.5f
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(clamped.roundToInt(), 0) }
+                            .graphicsLayer {
+                                this.scaleX = scaleX
+                                this.transformOrigin = TransformOrigin(originX, 0.5f)
+                            }
+                            .width(with(density) { itemWidth.toDp() })
+                            .fillMaxHeight()
+                            .padding({{ .Spec.ThemeName }}.spacing.xs)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    NavigationItemsList.forEachIndexed { index, item ->
+                        val selected = index == activeIndex
+                        val contentColour = if (selected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.label,
+                                modifier = Modifier.size(20.dp),
+                                tint = contentColour
+                            )
+                            Spacer(modifier = Modifier.height({{ .Spec.ThemeName }}.spacing.xxs))
+                            Text(
+                                text = item.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = contentColour,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Medium widths: a rail that expands to show labels. */
+@Composable
+fun ExpandableNavRail(navigator: Navigator) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    val startInset = WindowInsets.safeDrawing.asPaddingValues()
+        .calculateStartPadding(LocalLayoutDirection.current)
+    val collapsedWidth = {{ .Spec.ThemeName }}.spacing.xxxl + {{ .Spec.ThemeName }}.spacing.lg
+    val expandedWidth = {{ .Spec.ThemeName }}.spacing.hero + {{ .Spec.ThemeName }}.spacing.xxl
+
+    val railWidth by animateDpAsState(
+        targetValue = (if (expanded) expandedWidth else collapsedWidth) + startInset,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "railWidth"
+    )
+
+    Surface(
+        modifier = Modifier
+            .width(railWidth)
+            .fillMaxHeight(),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)
+                )
+                .padding(horizontal = {{ .Spec.ThemeName }}.spacing.md),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Spacer(modifier = Modifier.height({{ .Spec.ThemeName }}.spacing.md))
+            IconButton(onClick = { expanded = !expanded }) {
+                Icon(MaterialSymbols.Rounded.Menu, contentDescription = "Toggle navigation labels")
+            }
+            Spacer(modifier = Modifier.height({{ .Spec.ThemeName }}.spacing.lg))
+
+            VerticalNavigationItems(navigator = navigator, showLabels = expanded)
+
+            Spacer(modifier = Modifier.height({{ .Spec.ThemeName }}.spacing.md))
+        }
+    }
+}
+
+/** Large widths: a permanent drawer with labels always visible. */
+@Composable
+fun PermanentNavDrawer(navigator: Navigator) {
+    Surface(
+        modifier = Modifier
+            .width({{ .Spec.ThemeName }}.spacing.hero + {{ .Spec.ThemeName }}.spacing.xxl)
+            .fillMaxHeight(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)
+                )
+                .padding(horizontal = {{ .Spec.ThemeName }}.spacing.md),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Spacer(modifier = Modifier.height({{ .Spec.ThemeName }}.spacing.xl))
+            VerticalNavigationItems(navigator = navigator, showLabels = true)
+            Spacer(modifier = Modifier.height({{ .Spec.ThemeName }}.spacing.md))
+        }
+    }
+}
+
+/**
+ * The shared body of the rail and the drawer: the same drag-to-select pill as
+ * the floating bar, laid out vertically.
+ */
+@Composable
+private fun VerticalNavigationItems(
+    navigator: Navigator,
+    showLabels: Boolean,
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val activeRoute = navigator.state.currentRoot
+
+    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val isCompactHeight =
+        !windowSizeClass.isHeightAtLeastBreakpoint(WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND)
+    val itemHeight = if (isCompactHeight) 48.dp else 56.dp
+    val itemHeightPx = with(density) { itemHeight.toPx() }
+
+    val initialIndex = NavigationItemsList.indexOfFirst { it.route == activeRoute }.coerceAtLeast(0)
+    val animatedOffset = remember { Animatable(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    var activeIndex by remember { mutableIntStateOf(initialIndex) }
+    var parentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val itemPositions = remember { mutableStateMapOf<Int, Float>() }
+    var initialised by remember { mutableStateOf(false) }
+
+    LaunchedEffect(
+        activeRoute,
+        itemPositions[NavigationItemsList.indexOfFirst { it.route == activeRoute }]
+    ) {
+        val newIndex = NavigationItemsList.indexOfFirst { it.route == activeRoute }.coerceAtLeast(0)
+        activeIndex = newIndex
+        val targetY = itemPositions[newIndex] ?: return@LaunchedEffect
+
+        if (!initialised) {
+            animatedOffset.snapTo(targetY)
+            initialised = true
+        } else if (!isDragging && animatedOffset.targetValue != targetY) {
+            animatedOffset.animateTo(
+                targetY,
+                spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.76f)
+            )
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { parentCoordinates = it }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    if (itemPositions.isEmpty()) return@awaitEachGesture
+                    isDragging = true
+
+                    val minY = itemPositions[0] ?: 0f
+                    val maxY = itemPositions[NavigationItemsList.lastIndex] ?: 0f
+                    fun rubberBand(raw: Float): Float = when {
+                        raw < minY -> minY + (raw - minY) * 0.25f
+                        raw > maxY -> maxY + (raw - maxY) * 0.25f
+                        else -> raw
+                    }
+                    fun nearest(y: Float): Int =
+                        itemPositions.minByOrNull { (_, top) -> abs(y - (top + itemHeightPx / 2)) }?.key
+                            ?: activeIndex
+
+                    var lastIndex = nearest(down.position.y)
+                    activeIndex = lastIndex
+
+                    coroutineScope.launch {
+                        animatedOffset.animateTo(
+                            rubberBand(down.position.y - itemHeightPx / 2),
+                            spring(stiffness = 1000f, dampingRatio = 0.85f)
+                        )
+                    }
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+
+                    do {
+                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            val dragY = change.position.y
+                            coroutineScope.launch {
+                                animatedOffset.animateTo(
+                                    rubberBand(dragY - itemHeightPx / 2),
+                                    spring(stiffness = 1000f, dampingRatio = 0.85f)
+                                )
+                            }
+                            val hovered = nearest(dragY)
+                            if (hovered != lastIndex) {
+                                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                lastIndex = hovered
+                                activeIndex = hovered
+                            }
+                            if (abs(dragY - down.position.y) > 4f) {
+                                change.consume()
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    isDragging = false
+
+                    val target = activeIndex
+                    coroutineScope.launch {
+                        launch {
+                            animatedOffset.animateTo(
+                                itemPositions[target] ?: 0f,
+                                spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.76f)
+                            )
+                        }
+                        delay(50.milliseconds)
+                        navigator.navigate(NavigationItemsList[target].route)
+                    }
+                }
+            }
+    ) {
+        if (itemPositions.containsKey(activeIndex)) {
+            val minY = itemPositions[0] ?: 0f
+            val maxY = itemPositions[NavigationItemsList.lastIndex] ?: 0f
+            val currentOffset = animatedOffset.value
+            val clamped = currentOffset.coerceIn(minY, maxY)
+
+            val scaleY = when {
+                currentOffset < minY -> 1f + ((currentOffset - minY) / itemHeightPx) * 0.5f
+                currentOffset > maxY -> 1f - ((currentOffset - maxY) / itemHeightPx) * 0.5f
+                else -> 1f
+            }.coerceIn(0.65f, 1f)
+
+            val originY = when {
+                currentOffset < minY -> 0f
+                currentOffset > maxY -> 1f
+                else -> 0.5f
+            }
+
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(0, clamped.roundToInt()) }
+                    .graphicsLayer {
+                        this.scaleY = scaleY
+                        this.transformOrigin = TransformOrigin(0.5f, originY)
+                    }
+                    .fillMaxWidth()
+                    .height(itemHeight)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+            )
+        }
+
+        Column(modifier = Modifier.fillMaxWidth()) {
+            NavigationItemsList.forEachIndexed { index, item ->
+                val selected = index == activeIndex
+                val contentColour = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(itemHeight)
+                        .onGloballyPositioned { coords ->
+                            parentCoordinates?.let { parent ->
+                                itemPositions[index] = parent.localPositionOf(coords, Offset.Zero).y
+                            }
+                        }
+                        .clip(CircleShape)
+                        .clickable {
+                            coroutineScope.launch {
+                                activeIndex = index
+                                launch {
+                                    animatedOffset.animateTo(
+                                        itemPositions[index] ?: 0f,
+                                        spring(
+                                            stiffness = Spring.StiffnessMedium,
+                                            dampingRatio = 0.76f
+                                        )
+                                    )
+                                }
+                                delay(50.milliseconds)
+                                navigator.navigate(item.route)
+                            }
+                        }
+                        .padding(horizontal = {{ .Spec.ThemeName }}.spacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        Icon(
+                            item.icon,
+                            contentDescription = item.label,
+                            tint = contentColour,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = showLabels,
+                        enter = fadeIn() + expandHorizontally(expandFrom = Alignment.Start),
+                        exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.Start)
+                    ) {
+                        Text(
+                            text = item.label,
+                            color = contentColour,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            modifier = Modifier.padding(start = {{ .Spec.ThemeName }}.spacing.md),
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+{{end}}

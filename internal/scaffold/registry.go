@@ -2,6 +2,7 @@ package scaffold
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -148,11 +149,10 @@ func LoadFor(ref model.TemplateRef) (Template, error) {
 // carried. It reports false for a ref with no revision to replace - a path, or
 // a bare name - where the commit means nothing.
 func pinned(source, revision string) (string, bool) {
-	if !strings.Contains(source, ":") && !strings.Contains(source, "/") {
-		return "", false
-	}
-	if strings.HasPrefix(source, ".") || strings.HasPrefix(source, "/") ||
-		strings.HasPrefix(source, "~") {
+	// Only a remote has a commit to pin. A path and a bare name both used to
+	// reach the code below on the strength of containing a colon or a slash,
+	// which is how `C:\templates\mine` came back as a repository ref.
+	if !remoteRef(source) {
 		return "", false
 	}
 	// The revision is whatever follows the last @, which cannot appear in a
@@ -201,12 +201,30 @@ func IDs() []string {
 // looksLikeExternalRef reports whether a ref names something outside the binary:
 // a directory, or a git remote.
 func looksLikeExternalRef(ref string) bool {
+	return localRef(ref) || remoteRef(ref)
+}
+
+// localRef reports whether a ref names a directory on this machine.
+//
+// filepath.IsAbs is what makes `C:\templates\foo` a path rather than a remote:
+// checking for a leading "/" recognises it on Unix and misses it on Windows,
+// where the ref would then be treated as a git URL and have a commit appended.
+// This is the same test filetmpl's loader applies when it opens the thing.
+func localRef(ref string) bool {
 	switch {
-	case strings.HasPrefix(ref, "."), strings.HasPrefix(ref, "/"), strings.HasPrefix(ref, "~"):
+	case strings.HasPrefix(ref, "."), strings.HasPrefix(ref, "~"):
 		return true
-	case strings.Contains(ref, "://"), strings.HasPrefix(ref, "github:"), strings.HasPrefix(ref, "gitlab:"):
+	case strings.HasPrefix(ref, "/"), filepath.IsAbs(ref):
 		return true
 	default:
 		return false
 	}
+}
+
+// remoteRef reports whether a ref names a git repository.
+func remoteRef(ref string) bool {
+	return strings.Contains(ref, "://") ||
+		strings.HasPrefix(ref, "github:") ||
+		strings.HasPrefix(ref, "gitlab:") ||
+		strings.HasPrefix(ref, "git@")
 }

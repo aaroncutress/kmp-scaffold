@@ -74,7 +74,8 @@ A template from the internet
 Use this template? [y/N]
 ```
 
-Say yes and that commit is recorded in `~/.config/kmp-scaffold/trusted.json`.
+Say yes and that commit is recorded in `~/.config/kmp-scaffold/trusted.json`
+(`%AppData%\kmp-scaffold\trusted.json` on Windows).
 The answer is about the commit, not the repository: the same template at a later
 commit is a different set of files, and is asked about again.
 
@@ -89,7 +90,8 @@ anchors. That is why the prompt can honestly say "Runs nothing".
 
 ### The cache
 
-Fetched templates go under `${XDG_CACHE_HOME:-~/.cache}/kmp-scaffold/templates/`,
+Fetched templates go under `${XDG_CACHE_HOME:-~/.cache}/kmp-scaffold/templates/`
+— `%LocalAppData%\kmp-scaffold\cache\templates\` on Windows —
 keyed by the commit they resolved to. A tag or a commit is never re-fetched; a
 branch is re-checked once a day, or immediately with `--refresh`. `--offline`
 never touches the network, and says so if what you asked for is not cached.
@@ -111,6 +113,8 @@ name:
     ├── template.toml
     └── files/
 ```
+
+On Windows this is `%AppData%\kmp-scaffold\templates\` instead.
 
 The location follows `XDG_CONFIG_HOME` if it is set, and
 `KMP_SCAFFOLD_TEMPLATES` overrides it entirely. `kmp-scaffold templates` prints

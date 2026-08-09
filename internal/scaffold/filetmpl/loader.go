@@ -289,16 +289,35 @@ func UserDir() string {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		return filepath.Join(dir, "kmp-scaffold", "templates")
 	}
+	if dir, ok := windowsDir("AppData", "templates"); ok {
+		return dir
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	if runtime.GOOS == "windows" {
-		if appData := os.Getenv("AppData"); appData != "" {
-			return filepath.Join(appData, "kmp-scaffold", "templates")
-		}
-	}
 	return filepath.Join(home, ".config", "kmp-scaffold", "templates")
+}
+
+// windowsDir is a path under one of Windows' own directories, and false
+// everywhere else.
+//
+// The XDG variables above are honoured first wherever they are set, because
+// someone who has set them means it. This is the fallback, so that a Windows
+// user's files land where Windows puts files rather than in a dot-directory
+// borrowed from another platform's conventions.
+//
+// AppData is roaming configuration - it follows the user between machines.
+// LocalAppData is machine-local state, which is where a cache belongs.
+func windowsDir(env string, parts ...string) (string, bool) {
+	if runtime.GOOS != "windows" {
+		return "", false
+	}
+	base := os.Getenv(env)
+	if base == "" {
+		return "", false
+	}
+	return filepath.Join(append([]string{base, "kmp-scaffold"}, parts...)...), true
 }
 
 // isPath reports whether a ref names a directory rather than an id.

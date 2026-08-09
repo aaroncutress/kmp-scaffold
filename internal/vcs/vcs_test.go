@@ -173,3 +173,62 @@ func TestInsideRepoHandlesAMissingDirectory(t *testing.T) {
 		t.Error("a path under no repository is not inside one")
 	}
 }
+
+// Windows has no executable bit, so `gradlew` is written 0644 there and git
+// records it that way - and a clone on macOS or Linux gets a gradlew that will
+// not run. Git tracks the bit itself, so it can be set in the index even where
+// the file cannot carry it.
+//
+// The pass is a no-op everywhere else, because the mode is already right.
+func TestInitRecordsTheExecutableBit(t *testing.T) {
+	identity(t)
+	dir := project(t)
+
+	// A script and a plain file, written exactly as the generator writes them.
+	if err := os.WriteFile(filepath.Join(dir, "gradlew"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := vcs.Init(dir, "Initial commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Committed {
+		t.Fatalf("result = %+v, want a commit", result)
+	}
+
+	// git ls-files -s prints the mode first: 100755 for executable.
+	modes := map[string]string{}
+	for _, line := range strings.Split(git(t, dir, "ls-files", "-s"), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 4 {
+			modes[fields[3]] = fields[0]
+		}
+	}
+	if got := modes["gradlew"]; got != "100755" {
+		t.Errorf("gradlew is recorded as %s, want 100755 - it will not run when cloned", got)
+	}
+	if got := modes["notes.txt"]; got != "100644" {
+		t.Errorf("notes.txt is recorded as %s, want 100644", got)
+	}
+}
+
+// Notes accumulate. More than one thing can go unsaid in a single run, and the
+// last one used to overwrite the rest.
+func TestNotesAccumulate(t *testing.T) {
+	noIdentity(t)
+	dir := project(t)
+
+	result, err := vcs.Init(dir, "Initial commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the identity note is expected here, but it must be present and whole
+	// rather than truncated by a later writer.
+	if !strings.Contains(result.Note, "user.name") {
+		t.Errorf("note = %q, want the identity explanation", result.Note)
+	}
+}

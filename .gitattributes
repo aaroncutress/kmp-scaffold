@@ -1,0 +1,28 @@
+# Normalise line endings on the way into the repository, so a checkout on
+# Windows and one on macOS produce the same working tree.
+#
+# Without this, Git for Windows installs with core.autocrlf=true and checks
+# every Go file out as CRLF - at which point `gofmt -l .` flags all of them and
+# `task check` fails on a clean clone. The golden fingerprints in
+# internal/kmp/testdata are compared byte for byte, so they break the same way.
+#
+# This is the file kmp-scaffold generates for every project it scaffolds. It is
+# here for the same reasons.
+* text=auto eol=lf
+
+*.sh text eol=lf
+
+# Batch files are run by cmd.exe, which wants CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Compared byte for byte by the golden test, so the line endings are the point.
+internal/kmp/testdata/*.txt text eol=lf
+
+# Binary, so git neither converts line endings nor tries to diff them.
+*.jar binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary
+*.gz binary

@@ -70,6 +70,9 @@ func TrustFile() string {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		return filepath.Join(dir, "kmp-scaffold", "trusted.json")
 	}
+	if path, ok := windowsDir("AppData", "trusted.json"); ok {
+		return path
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""

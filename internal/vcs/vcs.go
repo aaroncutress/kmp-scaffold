@@ -10,7 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/aaroncutress/kmp-scaffold/internal/render"
 )
 
 // Available reports whether git can be run at all.
@@ -53,7 +56,21 @@ type Result struct {
 	// Committed is true when the first commit was made.
 	Committed bool
 	// Note explains anything that did not happen, in a form worth printing.
+	// More than one thing can go unsaid, so add to it with addNote rather than
+	// assigning - the last writer would otherwise silently win.
 	Note string
+}
+
+// addNote records something the caller should be told, keeping whatever was
+// already there.
+func (r *Result) addNote(s string) {
+	if s == "" {
+		return
+	}
+	if r.Note != "" {
+		r.Note += "\n  "
+	}
+	r.Note += s
 }
 
 // Summary is one line describing what happened, or "" when nothing did.
@@ -94,24 +111,73 @@ func Init(dir, message string) (Result, error) {
 	result := Result{Initialised: true}
 
 	if _, err := run(dir, "add", "-A"); err != nil {
-		result.Note = "the repository was created, but the files could not be staged"
+		result.addNote("the repository was created, but the files could not be staged")
 		return result, nil
 	}
 	result.Staged = true
+	result.addNote(markExecutable(dir))
 
 	// A commit needs an identity, and a machine that has never configured one
 	// is common enough to be worth handling rather than reporting as a failure.
 	if !hasIdentity(dir) {
-		result.Note = "the files are staged but not committed: git has no user.name or user.email yet.\n" +
-			"  Set them, then run `git commit -m \"" + message + "\"`"
+		result.addNote("the files are staged but not committed: git has no user.name or user.email yet.\n" +
+			"  Set them, then run `git commit -m \"" + message + "\"`")
 		return result, nil
 	}
 	if out, err := run(dir, "commit", "-m", message); err != nil {
-		result.Note = "the files are staged but the commit failed: " + firstLine(out)
+		result.addNote("the files are staged but the commit failed: " + firstLine(out))
 		return result, nil
 	}
 	result.Committed = true
 	return result, nil
+}
+
+// markExecutable records the executable bit for scripts, on the one platform
+// that cannot set it.
+//
+// Windows has no executable bit, so `gradlew` and the shell scripts are written
+// 0644 whatever mode was asked for - and git then records them that way. Clone
+// that repository on macOS or Linux and `./gradlew` will not run, which is a
+// confusing thing to inherit from the machine a project happened to be
+// generated on.
+//
+// Git tracks the bit itself, independently of the filesystem, so it can be set
+// in the index even where the file cannot carry it. Everywhere else this is a
+// no-op: the mode is already right and git has already recorded it.
+//
+// A failure here is worth mentioning and not worth stopping for - the files are
+// staged either way, and `git update-index --chmod=+x` is one command to run by
+// hand.
+func markExecutable(dir string) string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+
+	staged, err := run(dir, "diff", "--cached", "--name-only")
+	if err != nil {
+		return ""
+	}
+	var scripts []string
+	for _, path := range strings.Split(staged, "\n") {
+		if path = strings.TrimSpace(path); path == "" {
+			continue
+		}
+		// The same rule the writer used when it chose the mode.
+		if render.ExecutableMode(path) == 0o755 {
+			scripts = append(scripts, path)
+		}
+	}
+	if len(scripts) == 0 {
+		return ""
+	}
+
+	args := append([]string{"update-index", "--chmod=+x"}, scripts...)
+	if _, err := run(dir, args...); err != nil {
+		return "could not mark " + strings.Join(scripts, ", ") + " executable in git.\n" +
+			"  Run `git update-index --chmod=+x " + strings.Join(scripts, " ") + "`, " +
+			"or they will not be runnable when this is cloned on macOS or Linux"
+	}
+	return ""
 }
 
 // hasIdentity reports whether git knows who is committing.

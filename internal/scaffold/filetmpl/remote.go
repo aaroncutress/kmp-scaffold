@@ -214,6 +214,10 @@ func CacheDir() string {
 	if dir := os.Getenv("XDG_CACHE_HOME"); dir != "" {
 		return filepath.Join(dir, "kmp-scaffold", "templates")
 	}
+	// A cache is machine-local state, so LocalAppData rather than AppData.
+	if dir, ok := windowsDir("LocalAppData", "cache", "templates"); ok {
+		return dir
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""

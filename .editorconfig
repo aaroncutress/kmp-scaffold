@@ -1,0 +1,34 @@
+# Editor defaults for this repository, read by most editors without a plugin.
+# The tool generates one of these for every project it scaffolds; this is its
+# own.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = tab
+indent_size = 4
+
+# gofmt indents with tabs and aligns with spaces; nothing here should fight it.
+[*.go]
+indent_style = tab
+
+[*.{yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+# The embedded templates render into Kotlin, Swift, TOML and XML, all of which
+# use spaces. The width varies by output, so only the style is set here.
+[*.tmpl]
+indent_style = space
+
+[*.{toml,md}]
+indent_style = space
+indent_size = 2
+
+# Two trailing spaces are a line break in Markdown, so stripping them changes
+# the rendered output.
+[*.md]
+trim_trailing_whitespace = false

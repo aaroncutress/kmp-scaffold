@@ -5,7 +5,10 @@
 version: "3"
 
 vars:
-  BINARY: kmp-scaffold
+  # The base name, and the name on disk. Windows will not execute a file with
+  # no extension, so `task run` needs the suffix and so does `task clean`.
+  NAME: kmp-scaffold
+  BINARY: kmp-scaffold{{exeExt}}
   # The version stamped into the binary, and reported by `kmp-scaffold version`.
   # A tagged build gets the tag; anything else gets a description of where it
   # sits relative to one.
@@ -100,52 +103,23 @@ tasks:
       - go test ./internal/kmp -run TestGolden -update
       - git --no-pager diff --stat internal/kmp/testdata
 
+  # Archiving lives in ./tools/dist rather than in a shell block here. go-task
+  # runs commands through an embedded interpreter that gives you shell syntax
+  # but not coreutils, so mkdir, rm, cp, zip and sha256sum are all missing on
+  # Windows - which meant a release could only ever be cut from Linux or macOS.
+  # It is the standard library, so `go` and `git` are the only tools any task
+  # needs.
   dist:
     desc: Cross-compile release archives into dist/
-    deps: [clean:dist]
-    silent: true
     cmds:
-      - mkdir -p dist
-      - echo "Building {{.VERSION}}..."
-      - for: { var: PLATFORMS }
-        cmd: |
-          set -eu
-          platform='{{.ITEM}}'
-          os="${platform%/*}"
-          arch="${platform#*/}"
-
-          name='{{.BINARY}}_{{.VERSION}}_'"${os}_${arch}"
-          binary='{{.BINARY}}'
-          [ "$os" = windows ] && binary="$binary.exe"
-
-          mkdir -p "dist/$name"
-          GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
-            go build -trimpath -ldflags '{{.LDFLAGS}}' -o "dist/$name/$binary" .
-          cp README.md "dist/$name/"
-          if [ -f LICENSE ]; then cp LICENSE "dist/$name/"; fi
-
-          if [ "$os" = windows ]; then
-            (cd dist && zip -qr "$name.zip" "$name")
-          else
-            (cd dist && tar -czf "$name.tar.gz" "$name")
-          fi
-          rm -rf "dist/$name"
-          echo "  $name"
-      # One checksum file over the archives - and only the archives, or it
-      # would end up hashing itself.
-      - cmd: |
-          cd dist
-          sha256sum *.tar.gz *.zip > checksums.txt 2>/dev/null ||
-            shasum -a 256 *.tar.gz *.zip > checksums.txt
-      - echo && ls -1 dist
+      - >-
+        go run ./tools/dist
+        -binary {{.NAME}}
+        -version {{.VERSION}}
+        -ldflags "{{.LDFLAGS}}"
+        -platforms "{{.PLATFORMS}}"
 
   clean:
     desc: Remove build output
     cmds:
-      - rm -f {{.BINARY}}
-      - task: clean:dist
-
-  clean:dist:
-    internal: true
-    cmds:
-      - rm -rf dist
+      - go run ./tools/dist -clean -binary {{.NAME}}

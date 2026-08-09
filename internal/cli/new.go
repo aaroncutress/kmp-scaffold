@@ -399,12 +399,40 @@ func printNextSteps(t scaffold.Template, steps []scaffold.NextStep, root string)
 
 	fmt.Println()
 	// Only offer `add` for a template that can actually extend what it made.
+	//
+	// A singleton takes no name, and its noun is a phrase rather than a word -
+	// "a CI workflow" already carries its own article, and "tests" wants none.
+	// Printing "add ci <name>  to add a a CI workflow" trains people to ignore
+	// this block.
+	var lines []string
+	usageWidth := 0
 	for _, r := range t.Recipes() {
-		fmt.Println(sMuted.Render(fmt.Sprintf(
-			"  kmp-scaffold add %s <name>%s to add a %s", r.Name,
-			strings.Repeat(" ", max(1, 15-len(r.Name))), r.NounOr())))
+		usage := "kmp-scaffold add " + r.Name
+		if !r.Singleton {
+			usage += " <name>"
+		}
+		usageWidth = max(usageWidth, len(usage))
+		lines = append(lines, usage)
 	}
-	fmt.Println(sMuted.Render("  kmp-scaffold versions            to check for newer releases"))
+	for i, r := range t.Recipes() {
+		fmt.Println(sMuted.Render(fmt.Sprintf(
+			"  %-*s   to add %s", usageWidth, lines[i], article(r))))
+	}
+	fmt.Println(sMuted.Render(fmt.Sprintf(
+		"  %-*s   to check for newer releases", usageWidth, "kmp-scaffold versions")))
+}
+
+// article renders what a recipe adds as it reads in a sentence. A named recipe
+// adds one of a kind of thing; a singleton's noun is already the whole phrase.
+func article(r scaffold.Recipe) string {
+	noun := r.NounOr()
+	if r.Singleton {
+		return noun
+	}
+	if strings.ContainsAny(noun[:1], "aeiou") {
+		return "an " + noun
+	}
+	return "a " + noun
 }
 
 func max(a, b int) int {

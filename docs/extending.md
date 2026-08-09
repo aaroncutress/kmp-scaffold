@@ -297,6 +297,23 @@ implement templates**. They register themselves from their own `init()`.
 
 ```bash
 task check     # vet, gofmt, tests
+task run -- new /tmp/scratch --yes --offline    # build it and generate with it
+task dist      # cross-compile the release archives
+```
+
+Every task needs only `go` and `git`. Archiving is `tools/dist` rather than a
+shell block, because go-task runs commands through an embedded interpreter that
+gives you shell *syntax* but not `mkdir`, `rm`, `cp`, `zip` or `sha256sum` —
+which meant a release could only ever be cut from Linux or macOS, and
+`task clean` failed on Windows.
+
+If you are on Windows and `task check` reports that every file needs gofmt, your
+working tree has CRLF line endings from before this repository had a
+`.gitattributes`. Refresh it once:
+
+```
+git rm --cached -r .
+git reset --hard
 ```
 
 `internal/kmp/generate_test.go` generates complete projects offline into

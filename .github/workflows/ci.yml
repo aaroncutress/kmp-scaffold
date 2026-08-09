@@ -45,6 +45,15 @@ jobs:
       - name: Check
         run: task check
 
+      # `check` never builds the binary, so nothing here used to run it - which
+      # is how a Taskfile that produced an extensionless, unexecutable file on
+      # Windows went unnoticed. This builds it and generates with it.
+      #
+      # --offline keeps it off the network, so it is fast and cannot flake on a
+      # repository being slow.
+      - name: Generate a project with the built binary
+        run: task run -- new "${{ runner.temp }}/smoke" --yes --offline --no-git
+
   # A release cross-compiles from one machine, so that has to keep working - but
   # only once per merge, not on every pull request. Releasing is still never the
   # first time it is tried, because a release is cut from main.

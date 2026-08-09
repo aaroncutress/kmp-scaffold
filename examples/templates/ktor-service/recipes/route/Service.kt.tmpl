@@ -1,0 +1,10 @@
+package {{ .Project.Package }}.service
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class {{ .Feature.Pascal }}(val id: String)
+
+class {{ .Feature.Pascal }}Service {
+    fun all(): List<{{ .Feature.Pascal }}> = emptyList()
+}

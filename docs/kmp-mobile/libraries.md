@@ -1,0 +1,332 @@
+# Libraries and versions
+
+**Template: `kmp-mobile`.** How the default template decides which versions to
+write into `gradle/libs.versions.toml`, what each library pack contains, and how
+to keep a generated project current afterwards.
+
+The version *resolver* is the tool's, and any template can use it — see
+[writing a template](../templates/writing.md#versions). The catalog of libraries
+below belongs to this template alone.
+
+## The core
+
+Always present, never offered as a choice, because the generated code uses it:
+
+Compose (UI, foundation, Material 3, adaptive), Navigation 3, Koin,
+KMP-ObservableViewModel, Ktor (core, content negotiation, JSON), kotlinx
+serialisation / coroutines / datetime, AndroidX lifecycle and activity,
+Material Symbols icons, and the test stack (kotlin-test, Turbine, Koin test,
+coroutines test, Ktor MockEngine).
+
+## Library packs
+
+Everything else is a **pack** — a named group of artifacts that are only useful
+together.
+
+### On by default (the "basic" set)
+
+| Pack | What it adds |
+| --- | --- |
+| `images` | Coil 3 plus its Ktor fetcher, wired to the shared `HttpClient` |
+| `database` | Room KMP, bundled SQLite, KSP processors, an exported schema directory |
+| `secrets` | BuildKonfig — `secrets.properties` becomes typed fields and manifest placeholders |
+| `logger` | A multiplatform `Log` facade usable from `commonMain` |
+| `skie` | SKIE, which turns sealed classes, flows and suspend functions into idiomatic Swift (iOS only) |
+
+### Available on request
+
+| Pack | What it adds |
+| --- | --- |
+| `paging` | Paging 3, plus Room's paging support if the database pack is on |
+| `media3` | ExoPlayer and its Compose UI artifacts |
+| `maps` | Google Maps Compose, plus the manifest API-key placeholder |
+| `location` | Play services location and the coroutines interop artifact |
+| `charts` | Vico, with Material 3 chart theming |
+| `ble` | Kable, multiplatform Bluetooth LE |
+| `passkeys` | AndroidX Credential Manager and the Play services back-port |
+| `supabase` | BOM-managed auth, postgrest, storage and functions clients |
+| `koin-compiler` | Compile-time verification of the Koin graph |
+| `browser` | Custom Tabs |
+| `appcompat` | Only needed when interoperating with View-based screens |
+
+Packs are also what keeps the version catalog honest: nothing that no module
+depends on is written into `libs.versions.toml`.
+
+## Adding a pack later
+
+```bash
+kmp-scaffold add library paging
+```
+
+This resolves the newest compatible versions, adds the `[versions]` and
+`[libraries]` entries to `gradle/libs.versions.toml`, and prints the dependency
+lines to paste into the modules that need them:
+
+```
+Add to the modules that need them
+  implementation(libs.androidx.paging.common)
+  implementation(libs.androidx.paging.compose)
+
+Shared code goes in sharedLogic's commonMain block; Compose-only libraries go in
+androidApp or core/ui.
+```
+
+The last step is deliberately yours: only you know whether a library belongs in
+`commonMain`, `androidMain` or an Android-only module, and getting that wrong is
+a confusing compile error rather than an obvious one.
+
+`kmp-scaffold add library --help` lists every pack. Add `--dry-run` to preview.
+
+## How resolution works
+
+Nothing in this repository pins a "current" version. At generation time the tool
+makes five kinds of request:
+
+1. **`maven-metadata.xml`** from Maven Central, Google Maven or the Gradle Plugin
+   Portal, for every artifact it is about to write — in parallel.
+2. **`git ls-remote --tags`** for Swift packages, which have no metadata file:
+   a package is a git repository and its versions are its tags. Only the iOS
+   side uses this.
+3. **Google's Android SDK index** (`repository2-3.xml`) for the newest platform
+   and build-tools.
+4. **The Gradle release feed** for the current distribution and its SHA-256, so
+   `gradle-wrapper.properties` gets a verified checksum.
+5. **The Gradle source tree** for `gradlew`, `gradlew.bat` and
+   `gradle-wrapper.jar`, so the wrapper is byte-for-byte what `gradle wrapper`
+   would have produced.
+
+Every lookup can fail without failing the run: each key carries a known-good
+baseline, and anything that fell back to one is listed on the resolve screen.
+
+### Release channels
+
+Each candidate version is classified from its qualifier:
+
+| Channel | Accepts |
+| --- | --- |
+| `stable` | Final releases only |
+| `preview` (default) | Finals, plus `-rc` and `-beta` |
+| `bleeding` | The above, plus `-alpha`, `-dev`, `-SNAPSHOT` |
+
+Suffixes that are variants rather than prereleases — `0.8.0-0.6.x-compat`,
+`1.0.6-kotlin-2.4.20` — count as releases, but the plain artifact wins when both
+exist.
+
+Some libraries carry a **minimum channel** because they have never had a stable
+release: Navigation 3 and adaptive Material are alpha-only, so asking for
+`stable` still gets you their newest alpha, and the tool tells you it relaxed
+the rule.
+
+### Compatibility rules
+
+Picking the newest of everything independently produces combinations that do not
+build. These rules are applied afterwards:
+
+**Kotlin ↔ KSP.** KSP has used two version schemes. The classic one embeds the
+Kotlin version (`2.2.20-2.0.4`), so a Kotlin release with no matching KSP build
+cannot be used at all — the resolver steps Kotlin back until it finds one, and
+says so:
+
+```
+! Kotlin 2.3.0 has no KSP release yet; pinned Kotlin 2.2.21, which KSP 2.2.21-2.0.5 supports.
+```
+
+KSP2 versions independently (`2.3.10`), in which case both simply take their
+newest. Both schemes are handled, so this keeps working as KSP changes.
+
+**AGP ↔ Gradle.** Each AGP major has a minimum Gradle version. The tool always
+uses the current Gradle release, so this only bites when you pin an older one
+with `--gradle` — and then it is reported as an error, not a surprise at build
+time.
+
+**AGP ↔ compileSdk.** AGP refuses to build against a platform it does not know
+about. The newest platform from the SDK index is capped at what your AGP major
+supports:
+
+```
+· Android SDK 38 is available, but AGP 9.3.1 supports at most compileSdk 37 - using 37.
+```
+
+**Compose compiler ↔ Kotlin.** The Compose compiler plugin ships with Kotlin, so
+it is not versioned separately; `buildSrc` pins it to the same version.
+
+**SKIE ↔ Kotlin.** SKIE usually trails new Kotlin releases by a few days. It is
+resolved independently and flagged, since the failure mode (the iOS framework
+does not link) is otherwise cryptic.
+
+**KMP-ObservableViewModel's two halves.** Its Kotlin artifact and its Swift
+package are published together and read each other's internals, so mixing
+versions compiles and then misbehaves. The Swift side is resolved from the
+repository's tags and then pinned to whatever the Kotlin side settled on, and
+`Packages/Features/Package.swift` uses `exact:` rather than a range so Swift
+Package Manager cannot drift off it later. If the Swift side has not published
+that version, the run says so rather than pinning a version that does not exist.
+
+## What you target
+
+Resolution is about what is *current*. What the project *targets* is a separate
+set of answers, asked in the wizard and remembered in `.kmp-scaffold.json` so a
+later `add` matches:
+
+| Answer | Default | Where it lands |
+| --- | --- | --- |
+| Minimum Android SDK | 26 | `android-minSdk` in the catalog |
+| Minimum iOS version | 18.0 | `IPHONEOS_DEPLOYMENT_TARGET`, and `platforms:` in `Package.swift` |
+| Java version | 17 | `jvmTarget` and `sourceCompatibility` |
+| Swift language mode | 5 | `swiftLanguageModes:` and `SWIFT_VERSION` |
+
+`compileSdk` and `targetSdk` are not among them — they are resolved to the newest
+platform your AGP major supports, which is what you want in almost every case.
+Pin `compileSdk` with `--compile-sdk` if you need to.
+
+Two of these are coupled to the toolchain rather than free choices. Swift Package
+Manager only knows a platform case its declared `swift-tools-version` is new
+enough for (`.v18` needs 6.0, `.v26` needs 6.2), so the deployment target and the
+tools version move together. And Swift 6 language mode turns on strict
+concurrency checking, which the Kotlin framework's exported classes are not
+annotated for — hence the default of 5.
+
+## Pinning versions
+
+Any resolved version can be overridden:
+
+```bash
+kmp-scaffold new my-app --kotlin 2.4.10 --agp 9.2.1 --gradle 9.6.1 --compile-sdk 36
+```
+
+Pinned versions bypass resolution but still go through the compatibility checks,
+so you are told if the combination is known not to work.
+
+## Working offline
+
+```bash
+kmp-scaffold new my-app --offline --yes
+```
+
+This uses a baseline version set — a snapshot of a combination known to build
+together, not an attempt to track current — and says so:
+
+```
+! Offline mode: using the baseline version set from August 2026, not the latest releases.
+```
+
+The baseline is also the per-key fallback when an individual lookup fails, so a
+flaky network degrades one version rather than the whole run. Anything that fell
+back is listed.
+
+## Keeping a project current
+
+```bash
+cd my-app
+kmp-scaffold versions
+```
+
+Compares the project's `libs.versions.toml` against the newest releases:
+
+```
+Checking Tunesic against the latest releases...
+
+  androidx-lifecycle    2.11.0   →  2.12.0
+  koin                  4.2.2    →  4.3.0
+  ktor                  3.5.2    →  3.6.0
+
+3 of 41 entries have newer releases. Edit gradle/libs.versions.toml to take them.
+```
+
+It never edits anything: bumping a version is a decision, and often a
+one-line change you want in its own commit.
+
+`--channel stable` checks against stable releases only, whatever the project was
+generated with. `--all` also lists what is already current. Run it outside a
+project and it shows what a fresh project would use today.
+
+## Where the catalog lives
+
+Everything above — coordinates, packs, minimum channels, baselines — is one Go
+file: `internal/catalog/catalog.go`. Adding a library means adding a row to a
+table.
+
+## Adding a library pack
+
+Everything about a library lives in `internal/catalog/catalog.go`.
+
+**1. A version key**, in `VersionKeys()`, with the coordinate to probe:
+
+```go
+{Key: "sqldelight", Section: "Network & Multiplatform Utilities",
+    Probe:    Coordinate{"app.cash.sqldelight", "runtime", Central},
+    Baseline: "2.0.2"},
+```
+
+`Baseline` is the offline fallback, not a pin. Add `MinChannel: Bleeding` if the
+library has never had a stable release.
+
+**2. The artifacts**, in `Libraries()`, gated on a pack:
+
+```go
+{"sqldelight-runtime", "app.cash.sqldelight:runtime", "sqldelight",
+    "External Libraries", Pack("sqldelight")},
+{"sqldelight-coroutines", "app.cash.sqldelight:coroutines-extensions", "sqldelight",
+    "External Libraries", Pack("sqldelight")},
+```
+
+The last field is a predicate. `Pack(id)`, `Util(id)`, `Extra(id)`, `AndroidOnly`,
+`IOSOnly`, `Always`, `And(...)` and `AnyPack(...)` compose to describe when the
+artifact applies.
+
+**3. The pack itself**, in `Packs()`:
+
+```go
+{ID: "sqldelight", Label: "SQLDelight",
+    Description: "Typed SQL, generated from your schema.",
+    Tier:        TierExtra},
+```
+
+`TierBasic` puts it in the default set; `TierExtra` makes it opt-in. Add
+`RequiresIOS` or `RequiresAndroid` if it only makes sense on one platform.
+
+**4. A plugin**, if it needs one, in `Plugins()`:
+
+```go
+{"sqldelight", "app.cash.sqldelight", "sqldelight", Pack("sqldelight")},
+```
+
+Then reference it from the module templates that need the dependency:
+
+```
+{{- if .Spec.HasPack "sqldelight" }}
+    implementation(libs.sqldelight.runtime)
+{{- end }}
+```
+
+`go test ./internal/catalog` checks that every library and bundle references a
+version key that exists and that every key has a baseline, so a typo fails
+immediately.
+
+## Adding a shared utility
+
+A utility is a group of files in `sharedLogic` the wizard can toggle.
+
+**1. Declare it**, in `SharedUtilities()`:
+
+```go
+{ID: "analytics", Label: "Analytics facade",
+    Description: "A shared Analytics interface with a no-op default implementation.",
+    Default:     true, Requires: []string{"koin-di"}},
+```
+
+`Requires` names other utilities; `RequiresPack` names library packs. Both are
+enforced by `Normalise`, which pulls in dependencies and drops anything whose
+requirements are missing, explaining each change.
+
+**2. Add the templates** to `internal/assets/shared.tmpl`.
+
+**3. List the files** in `internal/generator/shared.go`:
+
+```go
+{"shared/Analytics.kt", common("core/analytics/Analytics.kt"),
+    spec.HasSharedUtil("analytics")},
+```
+
+The third field is the condition, so a utility that is switched off writes
+nothing.

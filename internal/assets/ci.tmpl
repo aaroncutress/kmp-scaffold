@@ -1,0 +1,124 @@
+{{define "ci/workflow.yml"}}
+name: CI
+
+# Pull requests are the gate, and the default branch is what gets released from.
+# Pushing a work in progress to a branch runs nothing - run the checks locally,
+# or use the Run workflow button when you want CI without opening a pull request.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to a pull request makes the run in flight for it pointless.
+concurrency:
+  group: ci-${{"{{"}} github.ref {{"}}"}}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build{{ if .Spec.Tests }} and test{{ end }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '{{ .Spec.JVMTarget }}'
+
+      # Caches the Gradle user home and the configuration cache between runs.
+      - uses: gradle/actions/setup-gradle@v5
+{{- if .Spec.HasPack "secrets" }}
+
+      # BuildKonfig reads secrets.properties at configuration time, so the file
+      # has to exist before Gradle runs. The template's values are placeholders;
+      # for anything a build genuinely needs, write it from a repository secret
+      # here instead.
+      - name: Provide secrets.properties
+        run: cp secrets.properties.template secrets.properties
+{{- end }}
+{{- if .Spec.Android }}
+
+      - name: Assemble the Android app
+        run: ./gradlew :androidApp:assembleDebug --stacktrace
+{{- else }}
+
+      - name: Build
+        run: ./gradlew build -x test --stacktrace
+{{- end }}
+{{- if .Spec.Tests }}
+
+      # allTests runs the shared module's tests on every target it is built for,
+      # so this covers the Kotlin the two apps have in common.
+      - name: Run the shared tests
+        run: ./gradlew :sharedLogic:allTests --stacktrace
+{{- if .Spec.Android }}
+
+      - name: Run the Android unit tests
+        run: ./gradlew :androidApp:testDebugUnitTest --stacktrace
+{{- end }}
+
+      # Kept even when a step above failed: the report is most useful exactly
+      # when something went wrong.
+      - name: Upload test reports
+        if: ${{"{{"}} !cancelled() {{"}}"}}
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-reports
+          path: '**/build/reports/tests/**'
+          if-no-files-found: ignore
+{{- end }}
+{{- if .Spec.IOS }}
+
+  ios:
+    name: Build the iOS app
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '{{ .Spec.JVMTarget }}'
+
+      - uses: gradle/actions/setup-gradle@v5
+{{- if .Spec.HasPack "secrets" }}
+
+      - name: Provide secrets.properties
+        run: cp secrets.properties.template secrets.properties
+{{- end }}
+{{- if .UsesIOSFeatures }}
+
+      # Swift Package Manager resolves the XCFramework as a binary target before
+      # any build phase runs, so it has to be on disk before xcodebuild starts.
+      - name: Build the shared framework
+        run: ./iosApp/build-framework.sh
+{{- end }}
+
+      # -target rather than -scheme: schemes are created by Xcode on first open
+      # and are not committed, so a fresh clone has none to name.
+      #
+      # No signing either. A simulator build needs none, and CI should not
+      # depend on a certificate someone has to keep alive.
+      - name: Build for the simulator
+        run: |
+          xcodebuild build \
+            -project iosApp/iosApp.xcodeproj \
+            -target iosApp \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+{{- if .Spec.Tests }}
+
+      # The Swift tests are not run here. The Features package is iOS-only and
+      # links an iOS XCFramework, so they need a booted simulator and a scheme
+      # to run headlessly - run them from Xcode's Test navigator instead. The
+      # shared Kotlin tests above cover the logic both platforms share.
+{{- end }}
+{{- end }}
+{{end}}

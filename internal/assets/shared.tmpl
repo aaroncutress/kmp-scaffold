@@ -1,0 +1,1112 @@
+{{define "shared/build.gradle.kts"}}
+{{- if .Spec.HasPack "secrets" }}
+import com.codingfeline.buildkonfig.compiler.FieldSpec
+{{- end }}
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+{{- if .UsesIOSFeatures }}
+import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
+{{- end }}
+{{- if .Spec.HasPack "secrets" }}
+import java.util.Properties
+{{- end }}
+
+plugins {
+    alias(libs.plugins.kotlinMultiplatform)
+{{- if .Spec.Android }}
+    alias(libs.plugins.androidMultiplatformLibrary)
+{{- end }}
+{{- if and .Spec.IOS (.Spec.HasPack "skie") }}
+    alias(libs.plugins.skie)
+{{- end }}
+    alias(libs.plugins.kotlin.serialization)
+{{- if or (.Spec.HasPack "database") (.Spec.HasPack "koin-compiler") }}
+    alias(libs.plugins.ksp)
+{{- end }}
+{{- if .Spec.HasPack "database" }}
+    alias(libs.plugins.androidx.room)
+{{- end }}
+{{- if .Spec.HasPack "koin-compiler" }}
+    alias(libs.plugins.koin.compiler)
+{{- end }}
+{{- if .Spec.HasPack "secrets" }}
+    alias(libs.plugins.buildkonfig)
+{{- end }}
+}
+{{ if .Spec.HasPack "database" }}
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+{{ end }}
+{{- if .Spec.HasPack "secrets" }}
+@Suppress("UNCHECKED_CAST")
+val secretsProps = rootProject.extra["secretsProps"] as Properties
+
+buildkonfig {
+    packageName = "{{ .Spec.Package }}.sharedlogic"
+
+    defaultConfigs {
+        secretsProps.entries.forEach { entry ->
+            buildConfigField(
+                FieldSpec.Type.STRING,
+                entry.key.toString(),
+                entry.value.toString()
+            )
+        }
+    }
+}
+{{ end }}
+kotlin {
+{{- if .Spec.Android }}
+    android {
+        namespace = "{{ .Spec.Package }}.sharedLogic"
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk = libs.versions.android.minSdk.get().toInt()
+
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_{{ .Spec.JVMTarget }}
+        }
+        androidResources {
+            enable = true
+        }
+        withHostTest {
+            isIncludeAndroidResources = true
+        }
+    }
+{{- end }}
+{{- if .Spec.IOS }}
+{{- if .UsesIOSFeatures }}
+
+    // The iOS app consumes this through Swift Package Manager, which needs a
+    // single XCFramework rather than a per-architecture framework. Assemble it
+    // with iosApp/build-framework.sh (the Xcode build phase runs that too).
+    val xcframework = XCFramework("{{ .Spec.FrameworkName }}")
+
+    listOf(
+        iosArm64(),
+        iosSimulatorArm64()
+    ).forEach { iosTarget ->
+        iosTarget.binaries.framework {
+            baseName = "{{ .Spec.FrameworkName }}"
+            isStatic = true
+            xcframework.add(this)
+        }
+    }
+{{- else }}
+
+    listOf(
+        iosArm64(),
+        iosSimulatorArm64()
+    ).forEach { iosTarget ->
+        iosTarget.binaries.framework {
+            baseName = "{{ .Spec.FrameworkName }}"
+            isStatic = true
+        }
+    }
+{{- end }}
+{{- end }}
+
+    sourceSets {
+        all {
+            languageSettings.optIn("kotlinx.cinterop.ExperimentalForeignApi")
+        }
+{{- if .Spec.IOS }}
+
+        val commonMain = getByName("commonMain")
+        val iosMain = create("iosMain") {
+            dependsOn(commonMain)
+            dependencies {
+                implementation(libs.ktor.client.darwin)
+            }
+        }
+
+        getByName("iosArm64Main").dependsOn(iosMain)
+        getByName("iosSimulatorArm64Main").dependsOn(iosMain)
+{{- end }}
+
+        commonMain.dependencies {
+            // Core multiplatform dependencies
+            implementation(libs.androidx.lifecycle.viewmodel)
+            implementation(libs.koin.core)
+            implementation(libs.koin.core.viewmodel)
+            implementation(libs.kotlinx.datetime)
+            implementation(libs.kotlinx.serialization.json)
+            implementation(libs.observableviewmodel.core)
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+
+            // Ktor engine core and JSON negotiation
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
+{{- end }}
+{{- if .Spec.HasPack "database" }}
+
+            // Persistence (Room)
+            implementation(libs.androidx.room.runtime)
+            implementation(libs.androidx.sqlite.bundled)
+{{- if .Spec.HasPack "paging" }}
+            implementation(libs.androidx.room.paging)
+{{- end }}
+{{- end }}
+{{- if .Spec.HasPack "paging" }}
+            implementation(libs.androidx.paging.common)
+{{- end }}
+{{- if or (.Spec.HasSharedUtil "settings") (.Spec.HasPack "logger") (.Spec.HasPack "ble") }}
+
+            // Utilities
+{{- if .Spec.HasPack "logger" }}
+            implementation(libs.logger)
+{{- end }}
+{{- if .Spec.HasSharedUtil "settings" }}
+            implementation(libs.settings)
+{{- end }}
+{{- if .Spec.HasPack "ble" }}
+            implementation(libs.kable)
+{{- end }}
+{{- end }}
+{{- if .Spec.HasPack "supabase" }}
+
+            // Supabase
+            implementation(project.dependencies.platform(libs.supabase.bom))
+            implementation(libs.supabase.auth)
+            implementation(libs.supabase.functions)
+            implementation(libs.supabase.postgrest)
+            implementation(libs.supabase.storage)
+{{- end }}
+        }
+{{- if .Spec.Android }}
+
+        androidMain.dependencies {
+            // Android platform implementations
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+            implementation(libs.ktor.client.okhttp)
+{{- end }}
+            implementation(libs.koin.android)
+{{- if .Spec.HasPack "location" }}
+            implementation(libs.play.services.location)
+            implementation(libs.kotlinx.coroutines.play.services)
+{{- end }}
+{{- if .Spec.HasPack "passkeys" }}
+
+            // Passkeys (Credential Manager). The play-services artifact is what
+            // back-ports passkey support to devices below API 34.
+            implementation(libs.androidx.credentials)
+            implementation(libs.androidx.credentials.play.services.auth)
+{{- end }}
+        }
+{{- end }}
+
+{{- if .Spec.Tests }}
+
+        commonTest.dependencies {
+            implementation(libs.kotlin.test)
+            implementation(libs.koin.test)
+            implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.turbine)
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+            implementation(libs.ktor.client.mock)
+{{- end }}
+        }
+{{- end }}
+
+        // kmp-scaffold:shared-test-deps
+    }
+
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+}
+{{- if .Spec.HasPack "database" }}
+
+dependencies {
+    // KSP processors, one per target
+{{- if .Spec.Android }}
+    add("kspAndroid", libs.androidx.room.compiler)
+{{- end }}
+{{- if .Spec.IOS }}
+    add("kspIosArm64", libs.androidx.room.compiler)
+    add("kspIosSimulatorArm64", libs.androidx.room.compiler)
+{{- end }}
+}
+{{- end }}
+{{end}}
+
+
+{{define "shared/Platform.kt"}}
+package {{ .Spec.Package }}.core.util
+
+/** Minimal platform introspection, mostly useful for logging and diagnostics. */
+interface Platform {
+    val name: String
+}
+
+expect fun currentPlatform(): Platform
+{{end}}
+
+
+{{define "shared/Platform.android.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import android.os.Build
+
+private class AndroidPlatform : Platform {
+    override val name: String = "Android ${Build.VERSION.SDK_INT}"
+}
+
+actual fun currentPlatform(): Platform = AndroidPlatform()
+{{end}}
+
+
+{{define "shared/Platform.apple.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import platform.UIKit.UIDevice
+
+private class IOSPlatform : Platform {
+    override val name: String =
+        UIDevice.currentDevice.systemName() + " " + UIDevice.currentDevice.systemVersion
+}
+
+actual fun currentPlatform(): Platform = IOSPlatform()
+{{end}}
+
+
+{{define "shared/BaseViewModel.kt"}}
+package {{ .Spec.Package }}.core.presentation
+
+import com.rickclephas.kmp.observableviewmodel.ViewModel
+import kotlinx.coroutines.flow.StateFlow
+
+/**
+ * Base class for every shared ViewModel.
+ *
+ * It extends the KMP-ObservableViewModel [ViewModel] rather than the AndroidX
+ * one so that the same class is observable from SwiftUI as well as Compose,
+ * and fixes the shape of the exposed state to a single [StateFlow] of an
+ * immutable [State] type - screens then only ever collect one thing.
+ */
+abstract class BaseViewModel<State : Any> : ViewModel() {
+    abstract val uiState: StateFlow<State>
+
+    /** The current state, for callers that are not collecting. */
+    val state: State
+        get() = uiState.value
+}
+{{end}}
+
+
+{{define "shared/NetworkObserver.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * Domain-level interface for monitoring device network connectivity.
+ *
+ * Provides a real-time stream of connectivity state so the app can react to
+ * internet availability (disabling remote actions, showing an offline banner).
+ */
+interface NetworkObserver {
+    /** Emits `true` while the device has an active internet connection. */
+    val isOnline: Flow<Boolean>
+}
+{{end}}
+
+
+{{define "shared/NetworkObserver.android.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onStart
+
+internal class AndroidNetworkObserver(
+    private val context: Context
+) : NetworkObserver {
+
+    private val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    override val isOnline: Flow<Boolean> = callbackFlow {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                trySend(true)
+            }
+
+            override fun onLost(network: Network) {
+                trySend(false)
+            }
+
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities
+            ) {
+                trySend(networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
+            }
+        }
+
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        connectivityManager.registerNetworkCallback(request, callback)
+
+        awaitClose {
+            connectivityManager.unregisterNetworkCallback(callback)
+        }
+    }
+        // registerNetworkCallback only reports *changes*, so seed the flow with
+        // the current state or nothing is emitted until connectivity moves.
+        .onStart {
+            val activeNetwork = connectivityManager.activeNetwork
+            val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+            emit(capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true)
+        }
+        .distinctUntilChanged()
+}
+{{end}}
+
+
+{{define "shared/NetworkObserver.apple.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import platform.Network.nw_path_get_status
+import platform.Network.nw_path_monitor_cancel
+import platform.Network.nw_path_monitor_create
+import platform.Network.nw_path_monitor_set_queue
+import platform.Network.nw_path_monitor_set_update_handler
+import platform.Network.nw_path_monitor_start
+import platform.Network.nw_path_status_satisfied
+import platform.darwin.dispatch_get_main_queue
+
+internal class IosNetworkObserver : NetworkObserver {
+
+    override val isOnline: Flow<Boolean> = callbackFlow {
+        val monitor = nw_path_monitor_create()
+        nw_path_monitor_set_update_handler(monitor) { path ->
+            trySend(nw_path_get_status(path) == nw_path_status_satisfied)
+        }
+        nw_path_monitor_set_queue(monitor, dispatch_get_main_queue())
+        nw_path_monitor_start(monitor)
+
+        awaitClose {
+            nw_path_monitor_cancel(monitor)
+        }
+    }
+        .distinctUntilChanged()
+}
+{{end}}
+
+
+{{define "shared/NetworkViewModel.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import {{ .Spec.Package }}.core.presentation.BaseViewModel
+import com.rickclephas.kmp.observableviewmodel.MutableStateFlow
+import com.rickclephas.kmp.observableviewmodel.coroutineScope
+import com.rickclephas.kmp.observableviewmodel.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+
+data class NetworkUiState(
+    val isOnline: Boolean = true,
+)
+
+/**
+ * Exposes connectivity to the UI layer. Kept separate from feature ViewModels
+ * so a single instance can back a global offline banner on both platforms.
+ */
+class NetworkViewModel internal constructor(
+    private val networkObserver: NetworkObserver
+) : BaseViewModel<NetworkUiState>() {
+
+    private val _isOnline = MutableStateFlow(viewModelScope, true)
+
+    override val uiState: StateFlow<NetworkUiState> = _isOnline
+        .map { NetworkUiState(isOnline = it) }
+        .stateIn(
+            viewModelScope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = NetworkUiState()
+        )
+
+    init {
+        networkObserver.isOnline
+            .onEach { _isOnline.value = it }
+            .launchIn(viewModelScope.coroutineScope)
+    }
+}
+{{end}}
+
+
+{{define "shared/Clock.kt"}}
+package {{ .Spec.Package }}.core.util
+
+/**
+ * Indirection over the system clock so time-dependent logic can be tested
+ * without sleeping. Inject [Clock]; the DI graph binds [SystemClock].
+ */
+interface Clock {
+    fun nowEpochMillis(): Long
+}
+
+expect object SystemClock : Clock {
+    override fun nowEpochMillis(): Long
+}
+{{end}}
+
+
+{{define "shared/SystemClock.android.kt"}}
+package {{ .Spec.Package }}.core.util
+
+actual object SystemClock : Clock {
+    actual override fun nowEpochMillis(): Long = System.currentTimeMillis()
+}
+{{end}}
+
+
+{{define "shared/SystemClock.apple.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import kotlinx.cinterop.ExperimentalForeignApi
+import platform.Foundation.NSDate
+import platform.Foundation.timeIntervalSince1970
+
+actual object SystemClock : Clock {
+    @OptIn(ExperimentalForeignApi::class)
+    actual override fun nowEpochMillis(): Long = (NSDate().timeIntervalSince1970 * 1000).toLong()
+}
+{{end}}
+
+
+{{define "shared/KtorNetworkEngine.kt"}}
+package {{ .Spec.Package }}.core.network
+
+import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
+import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
+
+/**
+ * Builds the shared [HttpClient].
+ *
+ * The engine is passed in rather than chosen here: the DI graph supplies OkHttp
+ * on Android and Darwin on iOS, which keeps this file free of platform code and
+ * lets tests substitute MockEngine.
+ */
+object KtorNetworkEngine {
+
+    val jsonConfig = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        encodeDefaults = true
+    }
+
+    fun createClient(engine: HttpClientEngine? = null): HttpClient {
+        val config: HttpClientConfig<*>.() -> Unit = {
+            install(ContentNegotiation) {
+                json(jsonConfig)
+            }
+            install(HttpTimeout) {
+                connectTimeoutMillis = 15_000
+                requestTimeoutMillis = 30_000
+            }
+        }
+        return if (engine != null) HttpClient(engine, config) else HttpClient(config)
+    }
+}
+{{end}}
+
+
+{{define "shared/AppSetting.kt"}}
+package {{ .Spec.Package }}.feature.settings.domain
+
+import com.russhwolf.settings.Settings
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * A single configuration value that knows how to read and write itself, and
+ * exposes its current value as a [StateFlow].
+ *
+ * Adding a setting is a one-line change in [AppSettingsRegistry] - no new
+ * repository method, no new flow plumbing.
+ */
+sealed class AppSetting<T> {
+    abstract val key: String
+    abstract val defaultValue: T
+
+    protected val _flow: MutableStateFlow<T> by lazy { MutableStateFlow(defaultValue) }
+    val flow: StateFlow<T> by lazy { _flow.asStateFlow() }
+
+    val value: T get() = _flow.value
+
+    abstract fun read(settings: Settings): T
+    abstract fun write(settings: Settings, value: T)
+
+    /** Called once by the repository at launch to sync disk state into the flow. */
+    fun initialize(settings: Settings) {
+        _flow.value = read(settings)
+    }
+
+    /** Writes to disk and updates the in-memory stream. */
+    fun update(settings: Settings, value: T) {
+        write(settings, value)
+        _flow.value = value
+    }
+
+    data class Toggle(
+        override val key: String,
+        override val defaultValue: Boolean
+    ) : AppSetting<Boolean>() {
+        override fun read(settings: Settings): Boolean = settings.getBoolean(key, defaultValue)
+        override fun write(settings: Settings, value: Boolean) = settings.putBoolean(key, value)
+    }
+
+    data class IntValue(
+        override val key: String,
+        override val defaultValue: Int
+    ) : AppSetting<Int>() {
+        override fun read(settings: Settings): Int = settings.getInt(key, defaultValue)
+        override fun write(settings: Settings, value: Int) = settings.putInt(key, value)
+    }
+
+    data class Text(
+        override val key: String,
+        override val defaultValue: String
+    ) : AppSetting<String>() {
+        override fun read(settings: Settings): String = settings.getString(key, defaultValue)
+        override fun write(settings: Settings, value: String) = settings.putString(key, value)
+    }
+
+    data class Choice<E : Enum<E>>(
+        override val key: String,
+        override val defaultValue: E,
+        private val valueOf: (String) -> E
+    ) : AppSetting<E>() {
+        override fun read(settings: Settings): E {
+            val savedName = settings.getStringOrNull(key) ?: return defaultValue
+            return try {
+                valueOf(savedName)
+            } catch (_: IllegalArgumentException) {
+                defaultValue
+            }
+        }
+
+        override fun write(settings: Settings, value: E) = settings.putString(key, value.name)
+    }
+}
+
+/** How the app should follow the system theme. */
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+/**
+ * The registry of every app setting. Add new settings here; everything else
+ * (persistence, flows, the settings screen's state) follows automatically.
+ */
+object AppSettingsRegistry {
+    val ThemeChoice = AppSetting.Choice(
+        key = "theme_mode",
+        defaultValue = ThemeMode.SYSTEM,
+        valueOf = { ThemeMode.valueOf(it) }
+    )
+    val AnalyticsEnabled = AppSetting.Toggle(key = "analytics_enabled", defaultValue = false)
+
+    /** Master list the repository iterates at startup. Register new settings here too. */
+    val allSettings: List<AppSetting<*>> = listOf(ThemeChoice, AnalyticsEnabled)
+}
+{{end}}
+
+
+{{define "shared/AppSettingsRepository.kt"}}
+package {{ .Spec.Package }}.feature.settings.domain
+
+/**
+ * Routes setting writes to disk and keeps the in-memory flows in step.
+ *
+ * Reads do not go through here - collect [AppSetting.flow] directly.
+ */
+interface AppSettingsRepository {
+    fun <T> set(setting: AppSetting<T>, value: T)
+}
+{{end}}
+
+
+{{define "shared/AppSettingsRepositoryImpl.kt"}}
+package {{ .Spec.Package }}.feature.settings.data
+
+import {{ .Spec.Package }}.feature.settings.domain.AppSetting
+import {{ .Spec.Package }}.feature.settings.domain.AppSettingsRegistry
+import {{ .Spec.Package }}.feature.settings.domain.AppSettingsRepository
+import com.russhwolf.settings.Settings
+
+internal class AppSettingsRepositoryImpl(private val settings: Settings) : AppSettingsRepository {
+
+    init {
+        // Hydrate every registered setting from disk exactly once, at construction.
+        AppSettingsRegistry.allSettings.forEach { it.initialize(settings) }
+    }
+
+    override fun <T> set(setting: AppSetting<T>, value: T) {
+        setting.update(settings, value)
+    }
+}
+{{end}}
+
+
+{{define "shared/SettingsModule.kt"}}
+package {{ .Spec.Package }}.feature.settings.di
+
+import {{ .Spec.Package }}.feature.settings.data.AppSettingsRepositoryImpl
+import {{ .Spec.Package }}.feature.settings.domain.AppSettingsRepository
+import {{ .Spec.Package }}.feature.settings.presentation.SettingsViewModel
+import org.koin.core.module.dsl.viewModelOf
+import org.koin.dsl.module
+
+val settingsModule = module {
+    single<AppSettingsRepository> { AppSettingsRepositoryImpl(get()) }
+    viewModelOf(::SettingsViewModel)
+}
+{{end}}
+
+
+{{define "shared/SettingsViewModel.kt"}}
+package {{ .Spec.Package }}.feature.settings.presentation
+
+import {{ .Spec.Package }}.core.presentation.BaseViewModel
+import {{ .Spec.Package }}.feature.settings.domain.AppSetting
+import {{ .Spec.Package }}.feature.settings.domain.AppSettingsRegistry
+import {{ .Spec.Package }}.feature.settings.domain.AppSettingsRepository
+import {{ .Spec.Package }}.feature.settings.domain.ThemeMode
+import com.rickclephas.kmp.observableviewmodel.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+
+data class SettingsUiState(
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val analyticsEnabled: Boolean = false,
+)
+
+class SettingsViewModel internal constructor(
+    private val appSettingsRepository: AppSettingsRepository
+) : BaseViewModel<SettingsUiState>() {
+
+    override val uiState: StateFlow<SettingsUiState> = combine(
+        AppSettingsRegistry.ThemeChoice.flow,
+        AppSettingsRegistry.AnalyticsEnabled.flow
+    ) { themeMode, analyticsEnabled ->
+        SettingsUiState(themeMode = themeMode, analyticsEnabled = analyticsEnabled)
+    }.stateIn(
+        viewModelScope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = SettingsUiState()
+    )
+
+    /** One updater for every setting, whatever its type. */
+    fun <T> updateSetting(setting: AppSetting<T>, value: T) {
+        appSettingsRepository.set(setting, value)
+    }
+}
+{{end}}
+
+
+{{define "shared/SettingsViewModelTest.kt"}}
+package {{ .Spec.Package }}.feature.settings.presentation
+
+import app.cash.turbine.test
+import {{ .Spec.Package }}.feature.settings.data.AppSettingsRepositoryImpl
+import {{ .Spec.Package }}.feature.settings.domain.AppSettingsRegistry
+import {{ .Spec.Package }}.feature.settings.domain.ThemeMode
+import com.russhwolf.settings.MapSettings
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class SettingsViewModelTest {
+
+    @Test
+    fun `updating a setting is reflected in ui state`() = runTest {
+        val repository = AppSettingsRepositoryImpl(MapSettings())
+        val viewModel = SettingsViewModel(repository)
+
+        viewModel.uiState.test {
+            assertEquals(ThemeMode.SYSTEM, awaitItem().themeMode)
+
+            viewModel.updateSetting(AppSettingsRegistry.ThemeChoice, ThemeMode.DARK)
+            assertEquals(ThemeMode.DARK, awaitItem().themeMode)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+}
+{{end}}
+
+
+{{define "shared/AppDatabase.kt"}}
+package {{ .Spec.Package }}.core.database
+
+import androidx.room.ConstructedBy
+import androidx.room.Database
+import androidx.room.RoomDatabase
+import androidx.room.RoomDatabaseConstructor
+
+/**
+ * The app's Room database.
+ *
+ * Add an entity to [entities] and a DAO accessor below, then bump [VERSION] and
+ * add a migration. Schemas are exported to `sharedLogic/schemas/`, which is what
+ * makes migrations reviewable in a pull request.
+ */
+@Database(
+    entities = [],
+    version = AppDatabase.VERSION,
+    exportSchema = true
+)
+@ConstructedBy(AppDatabaseConstructor::class)
+abstract class AppDatabase : RoomDatabase() {
+    companion object {
+        const val VERSION = 1
+        const val FILE_NAME = "{{ lowerAlnum .Spec.Name }}.db"
+    }
+}
+
+// Room's KSP processor generates the actual implementation per platform.
+@Suppress("NO_ACTUAL_FOR_EXPECT", "KotlinNoActualForExpect")
+expect object AppDatabaseConstructor : RoomDatabaseConstructor<AppDatabase> {
+    override fun initialize(): AppDatabase
+}
+{{end}}
+
+
+{{define "shared/DatabaseBuilder.kt"}}
+package {{ .Spec.Package }}.core.database
+
+import androidx.room.RoomDatabase
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.Dispatchers
+
+/**
+ * Each platform knows where its database file belongs, so the builder is
+ * expect/actual; everything after that (driver, dispatcher, migrations) is
+ * shared and lives in [finalizeRoomDatabase].
+ */
+expect fun createRoomDatabaseBuilder(): RoomDatabase.Builder<AppDatabase>
+
+fun finalizeRoomDatabase(builder: RoomDatabase.Builder<AppDatabase>): AppDatabase =
+    builder
+        .setDriver(BundledSQLiteDriver())
+        .setQueryCoroutineContext(Dispatchers.IO)
+        .build()
+{{end}}
+
+
+{{define "shared/DatabaseBuilder.android.kt"}}
+package {{ .Spec.Package }}.core.database
+
+import android.content.Context
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
+
+private object DatabaseContext : KoinComponent
+
+actual fun createRoomDatabaseBuilder(): RoomDatabase.Builder<AppDatabase> {
+    val context = DatabaseContext.get<Context>()
+    val dbFile = context.getDatabasePath(AppDatabase.FILE_NAME)
+    return Room.databaseBuilder<AppDatabase>(
+        context = context.applicationContext,
+        name = dbFile.absolutePath
+    )
+}
+{{end}}
+
+
+{{define "shared/DatabaseBuilder.apple.kt"}}
+package {{ .Spec.Package }}.core.database
+
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import kotlinx.cinterop.ExperimentalForeignApi
+import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSURL
+import platform.Foundation.NSUserDomainMask
+
+@OptIn(ExperimentalForeignApi::class)
+actual fun createRoomDatabaseBuilder(): RoomDatabase.Builder<AppDatabase> {
+    val documentsUrl: NSURL = NSFileManager.defaultManager.URLForDirectory(
+        directory = NSDocumentDirectory,
+        inDomain = NSUserDomainMask,
+        appropriateForURL = null,
+        create = false,
+        error = null
+    ) ?: error("Could not locate the documents directory for the database")
+
+    val dbPath = requireNotNull(documentsUrl.path) + "/" + AppDatabase.FILE_NAME
+    return Room.databaseBuilder<AppDatabase>(name = dbPath)
+}
+{{end}}
+
+
+{{define "shared/SwiftPagingPresenter.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import com.rickclephas.kmp.observableviewmodel.ViewModelScope
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * Paging's Flow<PagingData<T>> does not cross the Swift boundary usefully on
+ * its own. Wrap a pager here and expose the wrapper so both platforms consume
+ * the same object; SKIE turns the flow into an AsyncSequence for Swift.
+ */
+class SwiftPagingPresenter<T : Any>(
+    pagingFlow: Flow<PagingData<T>>,
+    scope: ViewModelScope,
+) {
+    val pages: Flow<PagingData<T>> = pagingFlow.cachedIn(scope.coroutineScope)
+}
+{{end}}
+
+
+{{define "shared/SharedModules.kt"}}
+package {{ .Spec.Package }}.di
+
+{{- if .Spec.HasSharedUtil "database" }}
+import {{ .Spec.Package }}.core.database.AppDatabase
+import {{ .Spec.Package }}.core.database.createRoomDatabaseBuilder
+import {{ .Spec.Package }}.core.database.finalizeRoomDatabase
+{{- end }}
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+import {{ .Spec.Package }}.core.network.KtorNetworkEngine
+{{- end }}
+{{- if .Spec.HasSharedUtil "clock" }}
+import {{ .Spec.Package }}.core.util.Clock
+import {{ .Spec.Package }}.core.util.SystemClock
+{{- end }}
+{{- if .Spec.HasSharedUtil "network-observer" }}
+import {{ .Spec.Package }}.core.util.NetworkViewModel
+{{- end }}
+{{- if .Spec.HasSharedUtil "settings" }}
+import {{ .Spec.Package }}.feature.settings.di.settingsModule
+{{- end }}
+import org.koin.core.module.Module
+{{- if .Spec.HasSharedUtil "network-observer" }}
+import org.koin.core.module.dsl.viewModelOf
+{{- end }}
+import org.koin.dsl.module
+
+/**
+ * Cross-cutting singletons. Feature-specific bindings belong in that feature's
+ * own module, which is then listed in [sharedModules] below.
+ */
+val coreModule = module {
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+    single { KtorNetworkEngine.createClient(getOrNull()) }
+{{- end }}
+{{- if .Spec.HasSharedUtil "clock" }}
+    single<Clock> { SystemClock }
+{{- end }}
+{{- if .Spec.HasSharedUtil "network-observer" }}
+    viewModelOf(::NetworkViewModel)
+{{- end }}
+{{- if .Spec.HasSharedUtil "database" }}
+
+    single<AppDatabase> { finalizeRoomDatabase(createRoomDatabaseBuilder()) }
+{{- end }}
+}
+
+/**
+ * The whole shared graph. A new feature adds one line to [includes].
+ */
+val sharedModules = module {
+    includes(
+        coreModule,
+{{- if .Spec.HasSharedUtil "settings" }}
+        settingsModule,
+{{- end }}
+        // kmp-scaffold:shared-modules
+    )
+}
+
+/** Bindings that only one platform can provide (HTTP engine, storage, ...). */
+expect val platformModule: Module
+
+val appModules = listOf(sharedModules, platformModule)
+{{end}}
+
+
+{{define "shared/SharedModules.android.kt"}}
+package {{ .Spec.Package }}.di
+
+{{- if .Spec.HasSharedUtil "settings" }}
+import android.content.Context
+{{- end }}
+{{- if .Spec.HasSharedUtil "network-observer" }}
+import {{ .Spec.Package }}.core.util.AndroidNetworkObserver
+import {{ .Spec.Package }}.core.util.NetworkObserver
+{{- end }}
+{{- if .Spec.HasSharedUtil "settings" }}
+import com.russhwolf.settings.Settings
+import com.russhwolf.settings.SharedPreferencesSettings
+{{- end }}
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.okhttp.OkHttp
+import okhttp3.OkHttpClient
+{{- end }}
+{{- if or (.Spec.HasSharedUtil "network-observer") (.Spec.HasSharedUtil "settings") }}
+import org.koin.android.ext.koin.androidContext
+{{- end }}
+import org.koin.core.module.Module
+import org.koin.dsl.module
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+import java.util.concurrent.TimeUnit
+{{- end }}
+
+actual val platformModule: Module = module {
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+    single<OkHttpClient> {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
+
+    single<HttpClientEngine> {
+        OkHttp.create { preconfigured = get() }
+    }
+{{- end }}
+{{- if .Spec.HasSharedUtil "settings" }}
+
+    single<Settings> {
+        val context = androidContext()
+        SharedPreferencesSettings(
+            context.getSharedPreferences("{{ lowerAlnum .Spec.Name }}_prefs", Context.MODE_PRIVATE)
+        )
+    }
+{{- end }}
+{{- if .Spec.HasSharedUtil "network-observer" }}
+
+    single<NetworkObserver> { AndroidNetworkObserver(androidContext()) }
+{{- end }}
+}
+{{end}}
+
+
+{{define "shared/SharedModules.ios.kt"}}
+package {{ .Spec.Package }}.di
+
+{{- if .Spec.HasSharedUtil "network-observer" }}
+import {{ .Spec.Package }}.core.util.IosNetworkObserver
+import {{ .Spec.Package }}.core.util.NetworkObserver
+{{- end }}
+{{- if .Spec.HasSharedUtil "settings" }}
+import com.russhwolf.settings.NSUserDefaultsSettings
+import com.russhwolf.settings.Settings
+{{- end }}
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.darwin.Darwin
+{{- end }}
+import org.koin.core.module.Module
+import org.koin.dsl.module
+{{- if .Spec.HasSharedUtil "settings" }}
+import platform.Foundation.NSUserDefaults
+{{- end }}
+
+actual val platformModule: Module = module {
+{{- if .Spec.HasSharedUtil "settings" }}
+    single<Settings> { NSUserDefaultsSettings(NSUserDefaults.standardUserDefaults) }
+{{- end }}
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+    single<HttpClientEngine> { Darwin.create() }
+{{- end }}
+{{- if .Spec.HasSharedUtil "network-observer" }}
+    single<NetworkObserver> { IosNetworkObserver() }
+{{- end }}
+}
+{{end}}
+
+
+{{define "shared/KoinHelper.kt"}}
+package {{ .Spec.Package }}
+
+import {{ .Spec.Package }}.di.appModules
+import kotlinx.cinterop.BetaInteropApi
+import kotlinx.cinterop.ObjCClass
+import kotlinx.cinterop.getOriginalKotlinClass
+import org.koin.core.component.KoinComponent
+import org.koin.core.context.startKoin
+
+/**
+ * Swift's entry point into the shared DI graph.
+ *
+ * Call `KoinHelper.shared.setup()` once at app launch, then resolve with
+ * `KoinHelper.shared.get(objCClass: MyViewModel.self)`.
+ *
+ * It is deliberately not called `initKoin`: Kotlin/Native renames anything
+ * starting with `init` when exporting to Objective-C.
+ */
+object KoinHelper : KoinComponent {
+
+    fun setup() {
+        startKoin {
+            modules(appModules)
+        }
+    }
+
+    @OptIn(BetaInteropApi::class)
+    fun get(objCClass: ObjCClass): Any {
+        val kClass = getOriginalKotlinClass(objCClass)
+            ?: throw IllegalArgumentException(
+                "Could not find the Kotlin class behind Objective-C type: $objCClass"
+            )
+        return getKoin().get(clazz = kClass, qualifier = null, parameters = null)
+    }
+}
+{{end}}
+
+
+{{define "shared/PlatformTest.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+/**
+ * A test that runs on every target, so `./gradlew allTests` proves the test
+ * setup works before you have written anything of your own.
+ *
+ * It deliberately depends on nothing optional: whatever else this project was
+ * generated with, this compiles and passes.
+ */
+class PlatformTest {
+
+    @Test
+    fun `every platform reports a name`() {
+        assertTrue(currentPlatform().name.isNotBlank())
+    }
+}
+{{end}}

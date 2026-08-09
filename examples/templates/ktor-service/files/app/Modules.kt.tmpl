@@ -1,0 +1,13 @@
+package {{ .Project.Package }}
+
+import org.koin.dsl.module
+{{- range .Vars.routes }}
+import {{ $.Project.Package }}.service.{{ pascal . }}Service
+{{- end }}
+
+val appModule = module {
+{{- range .Vars.routes }}
+    single { {{ pascal . }}Service() }
+{{- end }}
+    // ktor-service:modules
+}

@@ -1,0 +1,852 @@
+{{define "iosfeatures/Package.swift"}}
+// swift-tools-version: 6.2
+import PackageDescription
+
+// Every feature depends on the same three things: the shared route payloads,
+// the Kotlin Multiplatform framework, and the SwiftUI bridge for its
+// ViewModels. Declaring that once keeps the target list readable and makes it
+// obvious when a target reaches for something it should not - a feature must
+// never depend on another feature.
+let featureDependencies: [Target.Dependency] = [
+    "CoreNavigation",
+    "{{ .Spec.FrameworkName }}",
+    .product(name: "KMPObservableViewModelSwiftUI", package: "KMP-ObservableViewModel"),
+]
+
+let package = Package(
+    name: "Features",
+    platforms: [.iOS(.{{ .IOSDeploymentMajor }})],
+    products: [
+        // One product per target, so a single feature can be imported on its
+        // own in a preview, a test, or another package.
+        .library(name: "CoreNavigation", targets: ["CoreNavigation"]),
+        .library(name: "{{ .Spec.FrameworkName }}", targets: ["{{ .Spec.FrameworkName }}"]),
+{{- range .Tabs }}
+        .library(name: "{{ .Pascal }}", targets: ["{{ .Pascal }}"]),
+{{- end }}
+        // kmp-scaffold:ios-products
+
+        // What the app target links: one product covering every feature. The
+        // Xcode project references this and nothing else, so adding a feature
+        // never touches project.pbxproj - which matters, because Xcode rewrites
+        // that file whenever it saves.
+        .library(name: "AppFeatures", targets: [
+            "CoreNavigation",
+{{- range .Tabs }}
+            "{{ .Pascal }}",
+{{- end }}
+            // kmp-scaffold:ios-app-features
+        ]),
+    ],
+    dependencies: [
+        // Pinned exactly, not with a range: this package's Swift and Kotlin
+        // halves are published together and read each other's internals, so
+        // they move as one. The version matches `observableviewmodel` in
+        // gradle/libs.versions.toml - change them together.
+        .package(
+            url: "https://github.com/rickclephas/KMP-ObservableViewModel",
+            exact: "{{ .ObservableViewModelSwiftVersion }}"
+        ),
+    ],
+    targets: [
+        // The Kotlin Multiplatform framework, built by Gradle.
+        //
+        // Swift Package Manager resolves this path before any Xcode build phase
+        // runs, so the XCFramework has to exist before the first build: run
+        // `iosApp/build-framework.sh` once after cloning. After that the app's
+        // "Build Kotlin Framework" phase keeps it current.
+        .binaryTarget(
+            name: "{{ .Spec.FrameworkName }}",
+            path: "../../Frameworks/{{ .Spec.FrameworkName }}.xcframework"
+        ),
+
+        // Route payloads and the Koin bridge. Every feature imports this; it
+        // imports no feature, which is what keeps the graph acyclic.
+        .target(
+            name: "CoreNavigation",
+            dependencies: [
+                "{{ .Spec.FrameworkName }}",
+                .product(name: "KMPObservableViewModelSwiftUI", package: "KMP-ObservableViewModel"),
+            ]
+        ),
+{{ range .Tabs }}
+        .target(name: "{{ .Pascal }}", dependencies: featureDependencies),
+{{- end }}
+        // kmp-scaffold:ios-targets
+{{- if .Spec.Tests }}
+
+        // Tests for the package, run from Xcode's Test navigator.
+        //
+        // It depends on CoreNavigation alone, which is where the routes live -
+        // so adding a feature never changes this target. To test a feature's
+        // own views, add it to this list yourself.
+        .testTarget(name: "FeatureTests", dependencies: ["CoreNavigation"]),
+{{- end }}
+        // kmp-scaffold:ios-test-target
+    ],
+{{- if eq .Spec.SwiftMode "5" }}
+    // Swift 5 language mode. Kotlin/Native exports its classes to Objective-C
+    // without Sendable annotations, so Swift 6's strict concurrency checking
+    // flags every shared type that crosses an actor boundary. Move to .v6 when
+    // you are ready to annotate that boundary yourself.
+    swiftLanguageModes: [.v5]
+{{- else }}
+    // Swift 6 language mode: strict concurrency checking is on. Types exported
+    // from the Kotlin framework are not Sendable, so anything you share across
+    // an actor boundary needs an explicit annotation.
+    swiftLanguageModes: [.v6]
+{{- end }}
+)
+{{end}}
+
+
+{{define "iosfeatures/Resolve.swift"}}
+import {{ .Spec.FrameworkName }}
+
+/// Resolves a dependency from the shared Koin graph.
+///
+/// Shared ViewModels are constructed by Koin, and their Kotlin constructors are
+/// `internal` - so they are not exported to Swift and cannot be built here. This
+/// asks the graph for them instead, which is also what makes a ViewModel's
+/// dependencies swappable from the Kotlin side without touching any Swift.
+///
+/// `KoinHelper.shared.setup()` must have run first; the app does that in
+/// `iOSApp.init()`.
+public func resolveShared<T: AnyObject>(_ type: T.Type) -> T {
+    guard let objCClass = type as? AnyClass else {
+        fatalError("\(type) is not an Objective-C visible class - is it exported from Kotlin?")
+    }
+    guard let instance = KoinHelper.shared.get(objCClass: objCClass) as? T else {
+        fatalError("The shared Koin graph has no binding for \(type)")
+    }
+    return instance
+}
+{{end}}
+
+
+{{define "iosfeatures/Route.swift"}}
+{{- $f := .Feature }}
+import Foundation
+
+/// Where the {{ $f.Name }} screen can be navigated to from.
+///
+/// Routes live here, in CoreNavigation, rather than in the feature itself: that
+/// is what lets any feature push this screen without importing the module that
+/// implements it. Add stored properties for whatever the screen needs - they
+/// travel with the route through `NavigationPath`.
+public struct {{ $f.Pascal }}Route: Hashable {
+    public init() {}
+}
+{{end}}
+
+
+{{define "iosfeatures/Screen.swift"}}
+{{- $f := .Feature }}
+import CoreNavigation
+{{- if $f.Shared }}
+import KMPObservableViewModelSwiftUI
+import {{ .Spec.FrameworkName }}
+{{- end }}
+import SwiftUI
+
+struct {{ $f.Pascal }}Screen: View {
+{{- if $f.Shared }}
+    @StateViewModel private var viewModel: {{ $f.Pascal }}ViewModel
+
+    init() {
+        // Same ViewModel class the Android side collects from, so both platforms
+        // see identical state.
+        _viewModel = StateViewModel(wrappedValue: resolveShared({{ $f.Pascal }}ViewModel.self))
+    }
+{{- end }}
+
+    var body: some View {
+{{- if $f.Shared }}
+        Group {
+            if viewModel.uiState.isLoading {
+                ProgressView()
+            } else if let error = viewModel.uiState.error {
+                ContentUnavailableView("Something went wrong", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else {
+                Text(viewModel.uiState.message)
+            }
+        }
+        .navigationTitle("{{ $f.Pascal }}")
+{{- else }}
+        VStack(spacing: 12) {
+            Text("{{ $f.Pascal }}")
+                .font(.title2.bold())
+            Text("Replace this with the {{ $f.Name }} UI.")
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("{{ $f.Pascal }}")
+{{- end }}
+    }
+}
+
+#Preview {
+    NavigationStack {
+{{- if $f.Shared }}
+        // The real screen resolves its ViewModel from Koin, which a preview has
+        // no graph for - pull the body into a stateless subview to preview it.
+        Text("{{ $f.Pascal }}")
+{{- else }}
+        {{ $f.Pascal }}Screen()
+{{- end }}
+    }
+}
+{{end}}
+
+
+{{define "iosfeatures/Destination.swift"}}
+{{- $f := .Feature }}
+import CoreNavigation
+import SwiftUI
+
+public extension View {
+
+    /// Renders the {{ $f.Name }} screen for a ``{{ $f.Pascal }}Route``.
+    ///
+    /// The screen itself stays `internal`: the app target only ever sees this
+    /// modifier, so the feature can restructure its views without breaking the
+    /// coordinator.
+    ///
+    /// To navigate from here to another feature, take a callback rather than
+    /// importing it:
+    ///
+    /// ```swift
+    /// func {{ $f.Camel }}Destination(
+    ///     for route: {{ $f.Pascal }}Route,
+    ///     onOpenDetail: @escaping (DetailRoute) -> Void
+    /// ) -> some View {
+    ///     {{ $f.Pascal }}Screen(onOpenDetail: onOpenDetail)
+    /// }
+    /// ```
+    ///
+    /// The coordinator then appends that route to the active tab's path, and the
+    /// two features still know nothing about each other.
+{{- if or $f.IsSheet $f.IsDialog }}
+    ///
+    /// On Android this route presents as a {{ if $f.IsSheet }}bottom sheet{{ else }}dialog{{ end }}. SwiftUI has no
+    /// equivalent inside `NavigationPath`, so it is pushed here instead. To
+    /// present it modally, drop its `.navigationDestination` from
+    /// `AppDestinations` and drive a `.sheet(item:)` from the coordinator with
+    /// an optional `{{ $f.Pascal }}Route` instead.
+{{- end }}
+    @ViewBuilder
+    func {{ $f.Camel }}Destination(for route: {{ $f.Pascal }}Route) -> some View {
+        {{ $f.Pascal }}Screen()
+    }
+}
+{{end}}
+
+
+{{define "iosfeatures/iOSApp.swift"}}
+import SwiftUI
+import {{ .Spec.FrameworkName }}
+
+@main
+struct iOSApp: App {
+
+    init() {
+{{- if .Spec.HasSharedUtil "ios-koin-helper" }}
+        // Start the shared dependency graph before any view can ask for a
+        // ViewModel. Deliberately not called `initKoin`: Kotlin/Native renames
+        // anything starting with `init` when exporting to Objective-C.
+        KoinHelper.shared.setup()
+{{- end }}
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            AppCoordinator()
+        }
+    }
+}
+{{end}}
+
+
+{{define "iosfeatures/AppCoordinator.swift"}}
+{{- range .IOSCoordinatorImports }}
+import {{ . }}
+{{- end }}
+
+/// The tabs, and the state that decides which one is showing.
+enum AppTab: Hashable {
+{{- range .Tabs }}
+    case {{ .Camel }}
+{{- end }}
+    // kmp-scaffold:ios-tab-cases
+}
+
+/// The root view: a tab bar over one navigation stack per tab.
+///
+/// Each tab keeps its own `NavigationPath`, which is what lets someone go deep
+/// into one tab, switch away to another, and come back to exactly where they
+/// were. A single shared path would flatten all of that into one history.
+///
+/// This mirrors the Android side, where every root route has its own back stack
+/// under the adaptive navigation shell.
+struct AppCoordinator: View {
+    @State private var selectedTab: AppTab = .{{ (index .Tabs 0).Camel }}
+
+{{- range .Tabs }}
+    @State private var {{ .Camel }}Path = NavigationPath()
+{{- end }}
+    // kmp-scaffold:ios-tab-paths
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+{{- range .Tabs }}
+            NavigationStack(path: ${{ .Camel }}Path) {
+                EmptyView()
+                    .{{ .Camel }}Destination(for: {{ .Pascal }}Route())
+                    .modifier(AppDestinations(path: ${{ .Camel }}Path))
+            }
+            .tabItem { Label("{{ .Label }}", systemImage: "{{ .Symbol }}") }
+            .tag(AppTab.{{ .Camel }})
+{{ end }}
+            // kmp-scaffold:ios-tabs
+        }
+    }
+}
+
+/// Every destination that is not a tab root, registered on all of them.
+///
+/// Applying the same modifier to each stack means a pushed screen opens inside
+/// whichever tab the user is already in, rather than yanking them to a
+/// different one. `path` is here so a screen that navigates onwards can append
+/// to the stack it is already on.
+private struct AppDestinations: ViewModifier {
+    @Binding var path: NavigationPath
+
+    func body(content: Content) -> some View {
+        content
+            // kmp-scaffold:ios-destinations
+    }
+}
+{{end}}
+
+
+{{define "iosfeatures/build-framework.sh"}}
+#!/bin/sh
+#
+# Builds the sharedLogic XCFramework and puts it where the Features package
+# expects to find it.
+#
+# Xcode runs this as a build phase, but Swift Package Manager resolves the
+# binary target's path *before* any build phase runs - so the framework has to
+# exist before the first build. Run this once after cloning:
+#
+#     ./iosApp/build-framework.sh
+#
+set -eu
+
+CONFIGURATION="${CONFIGURATION:-Debug}"
+FRAMEWORK_NAME="{{ .Spec.FrameworkName }}"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+LOWER_CONFIG=$(echo "$CONFIGURATION" | tr '[:upper:]' '[:lower:]')
+
+echo "Assembling $FRAMEWORK_NAME.xcframework ($CONFIGURATION)..."
+"$REPO_ROOT/gradlew" -p "$REPO_ROOT" ":sharedLogic:assemble${FRAMEWORK_NAME}${CONFIGURATION}XCFramework"
+
+BUILT="$REPO_ROOT/sharedLogic/build/XCFrameworks/$LOWER_CONFIG/$FRAMEWORK_NAME.xcframework"
+if [ ! -d "$BUILT" ]; then
+    echo "error: Gradle did not produce $BUILT" >&2
+    exit 1
+fi
+
+DEST="$SCRIPT_DIR/Frameworks"
+mkdir -p "$DEST"
+# Replace rather than merge, so a removed architecture does not linger.
+rm -rf "$DEST/$FRAMEWORK_NAME.xcframework"
+cp -R "$BUILT" "$DEST/$FRAMEWORK_NAME.xcframework"
+
+echo "Wrote $DEST/$FRAMEWORK_NAME.xcframework"
+{{end}}
+
+
+{{define "iosfeatures/README.md"}}
+# {{ .Spec.Name }} for iOS
+
+A SwiftUI app built from one local Swift package with a target per feature.
+
+## First run
+
+```sh
+./build-framework.sh          # once, before opening Xcode
+open iosApp.xcodeproj
+```
+
+The first step is not optional. `Packages/Features/Package.swift` declares the
+Kotlin framework as a `.binaryTarget`, and Swift Package Manager resolves that
+path *before* Xcode runs any build phase — so the XCFramework has to be on disk
+already. After that, the app's "Build Kotlin Framework" phase rebuilds it on
+every build, and you only need to run the script by hand again if you change
+the shared module's *API* while Xcode is open (a re-resolve picks it up).
+
+## Layout
+
+```
+iosApp/
+├── iosApp.xcodeproj
+├── build-framework.sh          Gradle -> Frameworks/{{ .Spec.FrameworkName }}.xcframework
+├── Frameworks/                 generated, gitignored
+├── iosApp/
+│   └── App/
+│       ├── iOSApp.swift        @main, starts Koin
+│       └── AppCoordinator.swift  TabView + one NavigationPath per tab
+└── Packages/Features/
+    ├── Package.swift
+    └── Sources/
+        ├── CoreNavigation/     route payloads + the Koin bridge
+{{- range .Tabs }}
+        ├── {{ .Pascal }}/
+{{- end }}
+        └── ...
+```
+
+## The dependency rule
+
+```
+              AppCoordinator (app target)
+                        │
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+{{ range $i, $t := .Tabs }}{{ if $i }}      {{ end }}{{ $t.Pascal }}{{ end }}   ...
+        │               │               │
+        └───────────────┼───────────────┘
+                        ▼
+                 CoreNavigation
+             (routes only, no views)
+```
+
+A feature never imports another feature. To open a screen that belongs to
+someone else, take a callback and let the coordinator append the route:
+
+```swift
+struct ContactsScreen: View {
+    let onOpenChat: (ChatRoute) -> Void      // ChatRoute comes from CoreNavigation
+    ...
+}
+```
+
+That is what keeps the build cache granular — editing one screen recompiles one
+target — and makes each feature previewable and testable on its own.
+
+## Adding a feature
+
+```sh
+kmp-scaffold add feature billing
+```
+
+which writes the target, its route and its destination wrapper, and wires them
+into `Package.swift` and `AppCoordinator.swift`.
+{{end}}
+
+
+{{define "iosfeatures/project.pbxproj"}}
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		D4E5F60718293A4B5C6D7E8F /* AppFeatures in Frameworks */ = {isa = PBXBuildFile; productRef = B2C3D4E5F60718293A4B5C6D /* AppFeatures */; };
+		E5F60718293A4B5C6D7E8F90 /* {{ .Spec.FrameworkName }} in Frameworks */ = {isa = PBXBuildFile; productRef = C3D4E5F60718293A4B5C6D7E /* {{ .Spec.FrameworkName }} */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		99C0407147F14D5DED91AC4E /* {{ .Spec.TypePrefix }}.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {{ .Spec.TypePrefix }}.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1463979C8B62247544DF50FD /* Exceptions for "iosApp" folder in "iosApp" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 58A500D66AD502809F4FFBBF /* iosApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		4D0AE68C5E15A23118D9B086 /* iosApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1463979C8B62247544DF50FD /* Exceptions for "iosApp" folder in "iosApp" target */,
+			);
+			path = iosApp;
+			sourceTree = "<group>";
+		};
+		9CBF16239C387ED058A0FB90 /* Configuration */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Configuration;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4F88B2311E7ECF639FB0AA19 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D4E5F60718293A4B5C6D7E8F /* AppFeatures in Frameworks */,
+				E5F60718293A4B5C6D7E8F90 /* {{ .Spec.FrameworkName }} in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		39F03250FC9E95A148AD25C4 = {
+			isa = PBXGroup;
+			children = (
+				9CBF16239C387ED058A0FB90 /* Configuration */,
+				4D0AE68C5E15A23118D9B086 /* iosApp */,
+				93B279502D05252289F5FE29 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		93B279502D05252289F5FE29 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				99C0407147F14D5DED91AC4E /* {{ .Spec.TypePrefix }}.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		58A500D66AD502809F4FFBBF /* iosApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7D581B62DA399774FFA460E2 /* Build configuration list for PBXNativeTarget "iosApp" */;
+			buildPhases = (
+				B4BE94031CA4B99565BF91C1 /* Build Kotlin Framework */,
+				9C0A06F0F5B6AB7072662BF9 /* Sources */,
+				4F88B2311E7ECF639FB0AA19 /* Frameworks */,
+				06A6D6917DAD1293121D10D4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				4D0AE68C5E15A23118D9B086 /* iosApp */,
+			);
+			name = iosApp;
+			packageProductDependencies = (
+				B2C3D4E5F60718293A4B5C6D /* AppFeatures */,
+				C3D4E5F60718293A4B5C6D7E /* {{ .Spec.FrameworkName }} */,
+			);
+			productName = iosApp;
+			productReference = 99C0407147F14D5DED91AC4E /* {{ .Spec.TypePrefix }}.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		FE12BB26BACD9877A2FAADDF /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1620;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					58A500D66AD502809F4FFBBF = {
+						CreatedOnToolsVersion = 16.2;
+					};
+				};
+			};
+			buildConfigurationList = 793947030FB8B53136A5C7E5 /* Build configuration list for PBXProject "iosApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 39F03250FC9E95A148AD25C4;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1B2C3D4E5F60718293A4B5C /* XCLocalSwiftPackageReference "Packages/Features" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 93B279502D05252289F5FE29 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				58A500D66AD502809F4FFBBF /* iosApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		06A6D6917DAD1293121D10D4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B4BE94031CA4B99565BF91C1 /* Build Kotlin Framework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Kotlin Framework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping the Gradle build: OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED is YES\"\n  exit 0\nfi\n\"$SRCROOT/build-framework.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9C0A06F0F5B6AB7072662BF9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		90719B600D204BC75D629F5B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 9CBF16239C387ED058A0FB90 /* Configuration */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = {{ .Spec.IOSDeployTgt }};
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B7AF2BC72C2177E7DCFB4A4A /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 9CBF16239C387ED058A0FB90 /* Configuration */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = {{ .Spec.IOSDeployTgt }};
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		DC0E7D11BC65D405B5DB2DD2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_ASSET_PATHS = "\"iosApp/Preview Content\"";
+				DEVELOPMENT_TEAM = "${TEAM_ID}";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = iosApp/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = {{ .Spec.SwiftMode }}.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F3AC38EBCA133803C803D55B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_ASSET_PATHS = "\"iosApp/Preview Content\"";
+				DEVELOPMENT_TEAM = "${TEAM_ID}";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = iosApp/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = {{ .Spec.SwiftMode }}.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		793947030FB8B53136A5C7E5 /* Build configuration list for PBXProject "iosApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				90719B600D204BC75D629F5B /* Debug */,
+				B7AF2BC72C2177E7DCFB4A4A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7D581B62DA399774FFA460E2 /* Build configuration list for PBXNativeTarget "iosApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DC0E7D11BC65D405B5DB2DD2 /* Debug */,
+				F3AC38EBCA133803C803D55B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A1B2C3D4E5F60718293A4B5C /* XCLocalSwiftPackageReference "Packages/Features" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Features;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B2C3D4E5F60718293A4B5C6D /* AppFeatures */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AppFeatures;
+		};
+		C3D4E5F60718293A4B5C6D7E /* {{ .Spec.FrameworkName }} */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = {{ .Spec.FrameworkName }};
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = FE12BB26BACD9877A2FAADDF /* Project object */;
+}
+{{end}}
+
+
+{{define "iosfeatures/RouteTests.swift"}}
+import Testing
+
+@testable import CoreNavigation
+
+/**
+ Swift-side tests, run from Xcode's Test navigator.
+
+ Not by `swift test`: that builds for the host, and this package is iOS-only and
+ links an iOS XCFramework. Open iosApp.xcodeproj and run the tests there.
+
+ Routes are the natural thing to test here: they are the contract between
+ features, they are plain values, and they need no Kotlin framework loaded.
+ Logic that reaches into sharedLogic belongs in commonTest instead, where the
+ Android side runs it too.
+ */
+struct RouteTests {
+{{- if .Tabs }}
+{{- range .Tabs }}
+
+    @Test func {{ .Camel }}RouteIsAValue() {
+        // Routes travel through NavigationPath, which requires Hashable - so
+        // equality and hashing are what the navigation actually depends on.
+        #expect({{ .Pascal }}Route() == {{ .Pascal }}Route())
+        #expect(Set([{{ .Pascal }}Route(), {{ .Pascal }}Route()]).count == 1)
+    }
+{{- end }}
+{{- else }}
+
+    // This project has no root tabs yet, so there are no routes to test. The
+    // target exists anyway, because a test target that compiles is what proves
+    // the package, the toolchain and `swift test` are wired up - replace this
+    // once you add a feature.
+    @Test func theFeaturesPackageBuilds() {
+        #expect(Bool(true))
+    }
+{{- end }}
+}
+{{end}}

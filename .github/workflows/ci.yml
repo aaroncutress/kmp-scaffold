@@ -1,0 +1,84 @@
+name: CI
+
+# Pull requests are the gate, and main is what gets tagged. Pushing a work in
+# progress to a branch runs nothing - use `task check` locally, or the Run
+# workflow button when you want CI on a branch without opening a pull request.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to a pull request makes the run in flight for it pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is where this is developed, macOS is where most of its users
+        # are (the generated projects have an iOS side), and Windows is where
+        # the path and file-mode assumptions break if nobody is watching.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.52.0
+
+      # The same command that is run locally, so a green build here means what
+      # it looks like it means.
+      - name: Check
+        run: task check
+
+      # `check` never builds the binary, so nothing here used to run it - which
+      # is how a Taskfile that produced an extensionless, unexecutable file on
+      # Windows went unnoticed. This builds it and generates with it.
+      #
+      # --offline keeps it off the network, so it is fast and cannot flake on a
+      # repository being slow.
+      - name: Generate a project with the built binary
+        run: task run -- new "${{ runner.temp }}/smoke" --yes --offline --no-git
+
+  # A release cross-compiles from one machine, so that has to keep working - but
+  # only once per merge, not on every pull request. Releasing is still never the
+  # first time it is tried, because a release is cut from main.
+  dist:
+    name: Cross-compile
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Unshallow, or `git describe` has no tags to describe against.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.52.0
+
+      - run: task dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7

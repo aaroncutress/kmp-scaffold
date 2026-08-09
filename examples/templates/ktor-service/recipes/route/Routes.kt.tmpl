@@ -1,0 +1,31 @@
+package {{ .Project.Package }}.routes
+
+import io.ktor.server.response.respond
+import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
+import io.ktor.server.routing.route
+{{- if .Feature.Vars.auth }}
+import io.ktor.server.auth.authenticate
+{{- end }}
+import org.koin.ktor.ext.inject
+import {{ .Project.Package }}.service.{{ .Feature.Pascal }}Service
+
+fun Route.{{ .Feature.Camel }}Routes() {
+    val service by inject<{{ .Feature.Pascal }}Service>()
+
+{{- if .Feature.Vars.auth }}
+    authenticate {
+        route("/{{ .Feature.Kebab }}") {
+            get {
+                call.respond(service.all())
+            }
+        }
+    }
+{{- else }}
+    route("/{{ .Feature.Kebab }}") {
+        get {
+            call.respond(service.all())
+        }
+    }
+{{- end }}
+}

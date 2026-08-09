@@ -1,0 +1,318 @@
+{{define "feature/api.build.gradle.kts"}}
+plugins {
+    id("{{ .Spec.Namespace }}.android.library")
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.parcelize)
+}
+
+android {
+    namespace = "{{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.api"
+}
+
+dependencies {
+    implementation(projects.core.navigation)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.kotlinx.serialization.json)
+}
+{{end}}
+
+
+{{define "feature/impl.build.gradle.kts"}}
+plugins {
+    id("{{ .Spec.Namespace }}.android.feature")
+}
+
+android {
+    namespace = "{{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.impl"
+}
+
+dependencies {
+    implementation(projects.feature.{{ .Feature.ProjectAccessor }}.api)
+}
+{{end}}
+
+
+{{define "feature/Route.kt"}}
+package {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.api
+
+{{ if .Feature.RootTab -}}
+import {{ .Spec.Package }}.core.navigation.RootRoute
+{{ else -}}
+import {{ .Spec.Package }}.core.navigation.Presentation
+import {{ .Spec.Package }}.core.navigation.Route
+{{ end -}}
+import {{ .Spec.Package }}.core.navigation.routeSerializers
+{{ if not .Feature.RootTab -}}
+import kotlinx.parcelize.IgnoredOnParcel
+{{ end -}}
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.subclass
+
+{{ if .Feature.RootTab -}}
+@Serializable
+@Parcelize
+data object {{ .Feature.Pascal }}Route : RootRoute
+{{- else -}}
+@Serializable
+@Parcelize
+data object {{ .Feature.Pascal }}Route : Route {
+    @IgnoredOnParcel
+    override val presentation = Presentation.{{ .Feature.PresentationConst }}
+}
+{{- end }}
+
+/**
+ * Register every Route added to this file here as well.
+ *
+ * Navigation 3 serialises the back stack polymorphically, and [Route] is an
+ * interface spanning modules rather than a sealed class, so an unregistered
+ * route silently fails to save - the back stack resets to the start
+ * destination on rotation or process death.
+ */
+val {{ .Feature.Camel }}NavSerializers: SerializersModule = routeSerializers {
+    subclass({{ .Feature.Pascal }}Route::class)
+}
+{{end}}
+
+
+{{define "feature/Navigation.kt"}}
+package {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.impl
+
+{{- if or .Feature.IsSheet .Feature.IsDialog }}
+import androidx.compose.material3.ExperimentalMaterial3Api
+{{- end }}
+import androidx.navigation3.runtime.EntryProviderScope
+import androidx.navigation3.runtime.NavKey
+{{- if .Feature.IsSheet }}
+import {{ .Spec.Package }}.core.navigation.BottomSheetSceneStrategy
+{{- else if .Feature.IsDialog }}
+import {{ .Spec.Package }}.core.navigation.DialogSceneStrategy
+{{- else }}
+import {{ .Spec.Package }}.core.navigation.SharedRoute
+{{- end }}
+import {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.api.{{ .Feature.Pascal }}Route
+
+/**
+ * This module's contribution to the app's entryProvider. Called from App.kt.
+ */
+{{ if or .Feature.IsSheet .Feature.IsDialog }}@OptIn(ExperimentalMaterial3Api::class)
+{{ end }}fun EntryProviderScope<NavKey>.{{ .Feature.Camel }}Entries() {
+{{- if .Feature.IsSheet }}
+    entry<{{ .Feature.Pascal }}Route>(
+        metadata = BottomSheetSceneStrategy.bottomSheet(
+            enabledValues = BottomSheetSceneStrategy.FullHeightOnly
+        )
+    ) {
+        {{ .Feature.Pascal }}Screen()
+    }
+{{- else if .Feature.IsDialog }}
+    entry<{{ .Feature.Pascal }}Route>(metadata = DialogSceneStrategy.dialog()) {
+        {{ .Feature.Pascal }}Screen()
+    }
+{{- else }}
+    entry<{{ .Feature.Pascal }}Route> {
+        // SharedRoute makes shared-element transitions available to this screen.
+        SharedRoute {
+            {{ .Feature.Pascal }}Screen()
+        }
+    }
+{{- end }}
+}
+{{end}}
+
+
+{{define "feature/Screen.kt"}}
+package {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.impl
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+{{- if .Feature.Shared }}
+import androidx.compose.runtime.getValue
+{{- end }}
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
+{{- if .Feature.Shared }}
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+{{- end }}
+import {{ .Spec.Package }}.core.ui.theme.{{ .Spec.ThemeName }}
+{{- if .Feature.Shared }}
+import {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.presentation.{{ .Feature.Pascal }}ViewModel
+import org.koin.compose.viewmodel.koinViewModel
+{{- end }}
+
+@Composable
+fun {{ .Feature.Pascal }}Screen(
+    modifier: Modifier = Modifier,
+{{- if .Feature.Shared }}
+    viewModel: {{ .Feature.Pascal }}ViewModel = koinViewModel(),
+{{- end }}
+) {
+{{- if .Feature.Shared }}
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+{{- end }}
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding({{ .Spec.ThemeName }}.spacing.md),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "{{ .Feature.Pascal }}",
+            style = MaterialTheme.typography.headlineMedium
+        )
+{{- if .Feature.Shared }}
+        Text(
+            text = if (state.isLoading) "Loading..." else state.message,
+            style = MaterialTheme.typography.bodyMedium
+        )
+{{- else }}
+        Text(
+            text = "Replace this with the {{ .Feature.Name }} UI.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+{{- end }}
+    }
+}
+
+@Preview
+@Composable
+private fun {{ .Feature.Pascal }}ScreenPreview() {
+    {{ .Spec.ThemeName }} {
+{{- if .Feature.Shared }}
+        // The real screen resolves its ViewModel from Koin, which a preview has
+        // no graph for - extract a stateless content composable to preview it.
+        Text("{{ .Feature.Pascal }}")
+{{- else }}
+        {{ .Feature.Pascal }}Screen()
+{{- end }}
+    }
+}
+{{end}}
+
+
+{{define "feature/shared.Repository.kt"}}
+package {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.domain
+
+/**
+ * What the {{ .Feature.Name }} feature needs from the outside world.
+ *
+ * The interface lives in `domain` and its implementation in `data`, so the
+ * ViewModel depends on the shape of the data rather than on where it comes
+ * from - which is what makes it substitutable in tests.
+ */
+interface {{ .Feature.Pascal }}Repository {
+    suspend fun load(): Result<String>
+}
+{{end}}
+
+
+{{define "feature/shared.RepositoryImpl.kt"}}
+package {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.data
+
+import {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.domain.{{ .Feature.Pascal }}Repository
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+import io.ktor.client.HttpClient
+{{- end }}
+
+internal class {{ .Feature.Pascal }}RepositoryImpl(
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+    private val client: HttpClient,
+{{- end }}
+) : {{ .Feature.Pascal }}Repository {
+
+    override suspend fun load(): Result<String> = runCatching {
+        // TODO: replace with a real call, e.g.
+        // client.get("$BASE_URL/{{ .Feature.Name }}").body<{{ .Feature.Pascal }}Response>()
+        "{{ .Feature.Pascal }} is wired up"
+    }
+}
+{{end}}
+
+
+{{define "feature/shared.ViewModel.kt"}}
+package {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.presentation
+
+import {{ .Spec.Package }}.core.presentation.BaseViewModel
+import {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.domain.{{ .Feature.Pascal }}Repository
+import com.rickclephas.kmp.observableviewmodel.MutableStateFlow
+import com.rickclephas.kmp.observableviewmodel.launch
+import com.rickclephas.kmp.observableviewmodel.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+
+data class {{ .Feature.Pascal }}UiState(
+    val isLoading: Boolean = true,
+    val message: String = "",
+    val error: String? = null,
+)
+
+class {{ .Feature.Pascal }}ViewModel internal constructor(
+    private val repository: {{ .Feature.Pascal }}Repository,
+) : BaseViewModel<{{ .Feature.Pascal }}UiState>() {
+
+    private val _state = MutableStateFlow(viewModelScope, {{ .Feature.Pascal }}UiState())
+
+    override val uiState: StateFlow<{{ .Feature.Pascal }}UiState> = _state
+        .map { it }
+        .stateIn(
+            viewModelScope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = {{ .Feature.Pascal }}UiState()
+        )
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, error = null)
+            repository.load()
+                .onSuccess { message ->
+                    _state.value = {{ .Feature.Pascal }}UiState(isLoading = false, message = message)
+                }
+                .onFailure { throwable ->
+                    _state.value = _state.value.copy(
+                        isLoading = false,
+                        error = throwable.message ?: "Something went wrong"
+                    )
+                }
+        }
+    }
+}
+{{end}}
+
+
+{{define "feature/shared.Module.kt"}}
+package {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.di
+
+import {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.data.{{ .Feature.Pascal }}RepositoryImpl
+import {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.domain.{{ .Feature.Pascal }}Repository
+import {{ .Spec.Package }}.feature.{{ .Feature.Pkg }}.presentation.{{ .Feature.Pascal }}ViewModel
+import org.koin.core.module.dsl.viewModelOf
+import org.koin.dsl.module
+
+val {{ .Feature.Camel }}Module = module {
+{{- if .Spec.HasSharedUtil "ktor-engine" }}
+    single<{{ .Feature.Pascal }}Repository> { {{ .Feature.Pascal }}RepositoryImpl(get()) }
+{{- else }}
+    single<{{ .Feature.Pascal }}Repository> { {{ .Feature.Pascal }}RepositoryImpl() }
+{{- end }}
+    viewModelOf(::{{ .Feature.Pascal }}ViewModel)
+}
+{{end}}

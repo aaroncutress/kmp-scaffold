@@ -1,0 +1,125 @@
+# Run `task` for the list, `task <name>` to run one.
+#
+# Everything CI does is a task in here, so a green build means the same commands
+# ran that you can run locally.
+version: "3"
+
+vars:
+  # The base name, and the name on disk. Windows will not execute a file with
+  # no extension, so `task run` needs the suffix and so does `task clean`.
+  NAME: kmp-scaffold
+  BINARY: kmp-scaffold{{exeExt}}
+  # The version stamped into the binary, and reported by `kmp-scaffold version`.
+  # A tagged build gets the tag; anything else gets a description of where it
+  # sits relative to one.
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  LDFLAGS: -s -w -X github.com/aaroncutress/kmp-scaffold/internal/cli.Version={{.VERSION}}
+  # Every platform a release is built for. Pure Go, no cgo, so these all
+  # cross-compile from one machine.
+  PLATFORMS: >-
+    linux/amd64 linux/arm64
+    darwin/amd64 darwin/arm64
+    windows/amd64 windows/arm64
+
+tasks:
+  default:
+    desc: List the tasks
+    silent: true
+    cmds:
+      - task --list
+
+  build:
+    desc: Build ./{{.BINARY}}
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BINARY}} .
+    sources:
+      - "**/*.go"
+      - "**/*.tmpl"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BINARY}}"
+
+  install:
+    desc: Install into $GOPATH/bin
+    cmds:
+      - go install -ldflags "{{.LDFLAGS}}" .
+
+  run:
+    desc: 'Build and run, e.g. task run -- new my-app --yes'
+    cmds:
+      - task: build
+      - ./{{.BINARY}} {{.CLI_ARGS}}
+
+  test:
+    desc: Run the tests
+    cmds:
+      - go test ./... {{.CLI_ARGS}}
+
+  test:race:
+    desc: Run the tests with the race detector
+    cmds:
+      - go test -race ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: Format every file
+    cmds:
+      - gofmt -w .
+
+  fmt:check:
+    desc: Fail if anything needs formatting
+    silent: true
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "gofmt needed on:"
+          echo "$unformatted"
+          exit 1
+        fi
+
+  tidy:
+    desc: Tidy go.mod, and fail if that changed anything
+    cmds:
+      - go mod tidy
+      - git diff --exit-code go.mod go.sum
+
+  check:
+    desc: What CI runs - vet, formatting and the tests
+    cmds:
+      - task: vet
+      - task: fmt:check
+      - task: test
+
+  golden:
+    desc: Re-record the golden projects after an intended output change
+    cmds:
+      - go test ./internal/kmp -run TestGolden -update
+      - git --no-pager diff --stat internal/kmp/testdata
+
+  # Archiving lives in ./tools/dist rather than in a shell block here. go-task
+  # runs commands through an embedded interpreter that gives you shell syntax
+  # but not coreutils, so mkdir, rm, cp, zip and sha256sum are all missing on
+  # Windows - which meant a release could only ever be cut from Linux or macOS.
+  # It is the standard library, so `go` and `git` are the only tools any task
+  # needs.
+  dist:
+    desc: Cross-compile release archives into dist/
+    cmds:
+      - >-
+        go run ./tools/dist
+        -binary {{.NAME}}
+        -version {{.VERSION}}
+        -ldflags "{{.LDFLAGS}}"
+        -platforms "{{.PLATFORMS}}"
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - go run ./tools/dist -clean -binary {{.NAME}}

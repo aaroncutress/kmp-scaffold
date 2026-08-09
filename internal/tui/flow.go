@@ -9,6 +9,7 @@ import (
 
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
 	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
+	"github.com/aaroncutress/kmp-scaffold/internal/vcs"
 )
 
 // NewFlow builds the wizard for `kmp-scaffold new`.
@@ -111,6 +112,18 @@ func universalSteps(meta scaffold.Meta) []Step {
 		},
 	}
 
+	// Where the project will be written decides whether offering a repository
+	// makes any sense, and that is only known once the directory is answered.
+	steps = append(steps, &ConfirmStep{
+		Prompt:  "Set up a git repository?",
+		Hint:    "git init, then an initial commit - so you can see what you change next.",
+		Default: true,
+		SkipIf: func(a *scaffold.Answers) bool {
+			return !vcs.Available() || vcs.InsideRepo(projectDir(a))
+		},
+		Apply: func(a *scaffold.Answers, v bool) { a.InitGit = v },
+	})
+
 	if meta.AsksPackage {
 		steps = append(steps, &TextStep{
 			Prompt: "Package name?",
@@ -177,4 +190,21 @@ func RecipeFlow(r scaffold.Recipe, m *model.Manifest, answers *scaffold.Answers)
 	})
 
 	return NewWizard("kmp-scaffold · add "+noun, answers, steps)
+}
+
+// projectDir is where the project will be written, as an absolute path.
+//
+// The wizard has to answer "would a repository here be nested inside another
+// one?" before anything is generated, so this works from the answers rather
+// than from what is on disk.
+func projectDir(a *scaffold.Answers) string {
+	dir := a.Project.Dir
+	if dir == "" {
+		dir = model.Kebab(a.Project.Name)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return dir
+	}
+	return abs
 }

@@ -112,6 +112,11 @@ func RequestFor(spec model.Spec) resolve.Request {
 		MinSDK:     spec.MinSDK,
 		CompileSDK: spec.CompileSDK,
 		GradleVer:  spec.GradleVer,
+		Pair: []resolve.PairRule{{
+			Lead:   catalog.KeyObservableVM,
+			Follow: catalog.KeyObservableVMSwift,
+			Label:  "KMP-ObservableViewModel",
+		}},
 	}
 }
 
@@ -142,6 +147,11 @@ func RequiredKeys(spec model.Spec) []string {
 	}
 	if spec.IOS && spec.HasPack("skie") {
 		need[catalog.KeySkie] = true
+	}
+	// The Swift half of ObservableViewModel is only ever written into the
+	// modular iOS layout's Package.swift, so nothing else needs to look it up.
+	if spec.IOSLayout == generator.IOSFeaturesLayout && need[catalog.KeyObservableVM] {
+		need[catalog.KeyObservableVMSwift] = true
 	}
 
 	var out []string

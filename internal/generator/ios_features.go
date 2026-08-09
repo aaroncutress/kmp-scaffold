@@ -9,7 +9,6 @@ import (
 
 	"github.com/aaroncutress/kmp-scaffold/internal/catalog"
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
-	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
 	"github.com/aaroncutress/kmp-scaffold/internal/wire"
 )
 
@@ -127,31 +126,27 @@ func (c Ctx) IOSDeploymentMajor() string {
 	return "v17"
 }
 
-// ObservableViewModelSwiftVersion is the Swift-package version matching the
-// resolved Gradle artifact.
+// ObservableViewModelSwiftVersion is the version Package.swift pins.
 //
-// KMP-ObservableViewModel publishes a Swift package tagged with the same
-// version as its Kotlin artifact, so the two sides cannot drift - but the
-// Kotlin side also publishes Kotlin-suffixed variants ("1.0.6-kotlin-2.4.20"),
-// and only the plain number exists as a Swift tag.
+// KMP-ObservableViewModel's Swift and Kotlin sides are published together and
+// have to match: the Swift package reads the Kotlin runtime's internals, so a
+// mismatched pair compiles and then misbehaves. The resolver already pairs the
+// two keys, resolving the Swift one from the repository's git tags and taking
+// the Kotlin version whenever it exists as a tag - so by the time this is
+// asked, the answer is either that shared version or the closest the Swift
+// side has, with a note explaining the difference.
 func (c Ctx) ObservableViewModelSwiftVersion() string {
-	raw := c.Res.V(catalog.KeyObservableVM)
-	if raw == "" {
-		return "1.0.6"
-	}
-	v := resolve.ParseVersion(raw)
-	if len(v.Nums) == 0 {
-		return raw
-	}
-	parts := make([]string, 0, 3)
-	for i := range 3 {
-		if i < len(v.Nums) {
-			parts = append(parts, strconv.Itoa(v.Nums[i]))
-		} else {
-			parts = append(parts, "0")
+	for _, key := range []string{catalog.KeyObservableVMSwift, catalog.KeyObservableVM} {
+		if raw := c.Res.V(key); raw != "" {
+			return raw
 		}
 	}
-	return strings.Join(parts, ".")
+	// Nothing resolved - offline, say - so the catalog's own floor stands in,
+	// which is the same version libs.versions.toml will have got.
+	if key, ok := catalog.VersionKeyByName(catalog.KeyObservableVMSwift); ok {
+		return key.Baseline
+	}
+	return "1.0.6"
 }
 
 // IOSCoordinatorImports is the app coordinator's import list, sorted, so that

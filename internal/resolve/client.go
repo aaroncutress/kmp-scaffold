@@ -74,6 +74,9 @@ type mavenMetadata struct {
 
 // Versions returns every published version of a coordinate, newest last.
 func (c *Client) Versions(ctx context.Context, coord catalog.Coordinate) ([]string, error) {
+	if coord.Repo == catalog.Swift {
+		return c.swiftVersions(ctx, coord)
+	}
 	url := MetadataURL(coord)
 
 	c.mu.Lock()

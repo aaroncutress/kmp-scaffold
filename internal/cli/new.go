@@ -18,6 +18,7 @@ import (
 	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 	"github.com/aaroncutress/kmp-scaffold/internal/scaffold/filetmpl"
 	"github.com/aaroncutress/kmp-scaffold/internal/tui"
+	"github.com/aaroncutress/kmp-scaffold/internal/vcs"
 )
 
 var errCancelled = errors.New("cancelled")
@@ -58,6 +59,8 @@ Flags:
 		kotlinVer  = fs.String("kotlin", "", "Pin the Kotlin version")
 		agpVer     = fs.String("agp", "", "Pin the Android Gradle Plugin version")
 		offline    = fs.Bool("offline", false, "Skip version resolution and use the built-in baseline")
+		git        = fs.Bool("git", false, "Set up a git repository (the default, unless already inside one)")
+		noGit      = fs.Bool("no-git", false, "Do not set up a git repository")
 		refresh    = fs.Bool("refresh", false, "Re-fetch a remote template instead of using the cached copy")
 		trust      = fs.Bool("trust", false, "Use a remote template without being asked to review it")
 		yes        = fs.Bool("yes", false, "Skip the wizard and accept the defaults")
@@ -236,6 +239,20 @@ Flags:
 		return err
 	}
 
+	// A repository is set up unless asked not to, or unless this would nest one
+	// inside another. The flags win over whatever the wizard collected.
+	switch {
+	case *noGit:
+		answers.InitGit = false
+	case *git:
+		answers.InitGit = true
+	case !interactive() || *yes:
+		answers.InitGit = vcs.Available() && !vcs.InsideRepo(root)
+	}
+	if answers.InitGit && vcs.InsideRepo(root) {
+		answers.InitGit = false
+	}
+
 	writer := render.NewWriter(root, *dryRun, *force)
 	report, err := template.Generate(ctx, scaffold.GenRequest{
 		Answers: answers,
@@ -255,6 +272,19 @@ Flags:
 	}
 	fmt.Println()
 	printWriteSummary(writer, *verbose)
+
+	if answers.InitGit && !*dryRun {
+		result, err := vcs.Init(root, "Initial commit")
+		if err != nil {
+			return err
+		}
+		if line := result.Summary(); line != "" {
+			fmt.Println("  " + sMuted.Render("· "+line))
+		}
+		if result.Note != "" {
+			fmt.Println("  " + sWarn.Render("! "+result.Note))
+		}
+	}
 
 	for _, n := range notes {
 		fmt.Println("  " + sMuted.Render("· "+n))

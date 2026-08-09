@@ -39,9 +39,13 @@ let package = Package(
         ]),
     ],
     dependencies: [
+        // Pinned exactly, not with a range: this package's Swift and Kotlin
+        // halves are published together and read each other's internals, so
+        // they move as one. The version matches `observableviewmodel` in
+        // gradle/libs.versions.toml - change them together.
         .package(
             url: "https://github.com/rickclephas/KMP-ObservableViewModel",
-            from: "{{ .ObservableViewModelSwiftVersion }}"
+            exact: "{{ .ObservableViewModelSwiftVersion }}"
         ),
     ],
     targets: [

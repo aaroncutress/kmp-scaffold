@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -728,4 +729,86 @@ func TestAddIOSFeatureIsRejectedOnTheSimpleLayout(t *testing.T) {
 	if !generator.SupportsFeatures(generator.KindIOS, generator.IOSFeaturesLayout) {
 		t.Error("generator.SupportsFeatures should be true for the modular layout")
 	}
+}
+
+// The modular iOS layout's Xcode project has to actually reference the local
+// Swift package, or the app target cannot see CoreNavigation and the project
+// does not compile. A pbxproj is an object graph, so this checks the ids line
+// up rather than that the words are present somewhere in the file.
+func TestModularIOSProjectLinksTheLocalPackage(t *testing.T) {
+	spec := testSpec("tunesic")
+	spec.IOSLayout = generator.IOSFeaturesLayout
+	catalog.Normalise(&spec)
+	pbxproj := mustRead(t, generate(t, spec), "iosApp/iosApp.xcodeproj/project.pbxproj")
+
+	// The package reference the project holds, and the id it uses for it.
+	pkgRef := findID(t, pbxproj, `(\w{24}) /\* XCLocalSwiftPackageReference "Packages/Features" \*/ = \{`)
+	if !strings.Contains(pbxproj, "relativePath = Packages/Features;") {
+		t.Error("the package reference does not say where the package is")
+	}
+	if !section(pbxproj, "packageReferences").has(pkgRef) {
+		t.Error("the project declares a local package it never lists in packageReferences")
+	}
+
+	// Both products the app links: the umbrella feature library, and the
+	// XCFramework Gradle builds.
+	for _, product := range []string{"AppFeatures", spec.FrameworkName()} {
+		dep := findID(t, pbxproj, `(\w{24}) /\* `+product+` \*/ = \{\n\t+isa = XCSwiftPackageProductDependency;`)
+		if !section(pbxproj, "packageProductDependencies").has(dep) {
+			t.Errorf("%s is declared but the target does not depend on it", product)
+		}
+
+		// A product dependency only links if a build file carries it into the
+		// frameworks phase.
+		build := findID(t, pbxproj,
+			`(\w{24}) /\* `+product+` in Frameworks \*/ = \{isa = PBXBuildFile; productRef = `+dep+` `)
+		if !section(pbxproj, "files").has(build) {
+			t.Errorf("%s has a build file that no build phase references", product)
+		}
+	}
+}
+
+// The single-entry-point layout shares none of that: it embeds the framework
+// directly and has no Swift package at all.
+func TestSingleEntryPointIOSProjectHasNoPackage(t *testing.T) {
+	spec := testSpec("simple")
+	spec.IOSLayout = "swiftui-simple"
+	catalog.Normalise(&spec)
+	pbxproj := mustRead(t, generate(t, spec), "iosApp/iosApp.xcodeproj/project.pbxproj")
+
+	for _, unwanted := range []string{
+		"XCLocalSwiftPackageReference",
+		"XCSwiftPackageProductDependency",
+		"PBXBuildFile",
+		"AppFeatures",
+	} {
+		if strings.Contains(pbxproj, unwanted) {
+			t.Errorf("the single-entry-point project mentions %s, which belongs to the modular layout", unwanted)
+		}
+	}
+}
+
+// findID pulls the 24-hex object id out of the first match of pattern.
+func findID(t *testing.T, pbxproj, pattern string) string {
+	t.Helper()
+	m := regexp.MustCompile(pattern).FindStringSubmatch(pbxproj)
+	if m == nil {
+		t.Fatalf("no object in the pbxproj matches %s", pattern)
+	}
+	return m[1]
+}
+
+// idList is the contents of one `name = ( ... );` list.
+type idList string
+
+func (l idList) has(id string) bool { return strings.Contains(string(l), id) }
+
+// section returns every `name = ( ... );` list in the file joined together, so
+// `files` covers each build phase's list at once.
+func section(pbxproj, name string) idList {
+	var out []string
+	for _, m := range regexp.MustCompile(`(?s)\b`+name+` = \((.*?)\);`).FindAllStringSubmatch(pbxproj, -1) {
+		out = append(out, m[1])
+	}
+	return idList(strings.Join(out, "\n"))
 }

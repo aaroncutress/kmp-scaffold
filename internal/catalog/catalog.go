@@ -24,6 +24,11 @@ const (
 	Central Repo = "central"
 	// Portal is the Gradle Plugin Portal.
 	Portal Repo = "portal"
+	// Swift is a Swift Package Manager package, which is not a repository at
+	// all: a package is a git repository and its versions are its tags. A
+	// Swift coordinate holds the repository URL rather than group:artifact,
+	// so it never reaches libs.versions.toml.
+	Swift Repo = "swift"
 )
 
 // Channel is how adventurous the user wants version resolution to be.
@@ -139,6 +144,11 @@ type VersionKey struct {
 }
 
 // Coordinate is a Maven group:artifact in a specific repository.
+//
+// A Swift coordinate reuses the same two fields for a git repository: Group is
+// everything up to the owner ("https://github.com/rickclephas") and Artifact is
+// the repository name ("KMP-ObservableViewModel"). Splitting it that way keeps
+// one shape for both kinds, and keeps the halves separately readable.
 type Coordinate struct {
 	Group    string
 	Artifact string
@@ -148,8 +158,15 @@ type Coordinate struct {
 // Empty reports whether the coordinate is unset.
 func (c Coordinate) Empty() bool { return c.Group == "" || c.Artifact == "" }
 
-// String renders the coordinate as group:artifact.
-func (c Coordinate) String() string { return c.Group + ":" + c.Artifact }
+// String renders the coordinate the way its repository names things: a URL for
+// a Swift package, group:artifact for everything else. It ends up in error
+// messages and resolver notes, so it should be the form you would search for.
+func (c Coordinate) String() string {
+	if c.Repo == Swift {
+		return c.Group + "/" + c.Artifact
+	}
+	return c.Group + ":" + c.Artifact
+}
 
 // Version key names used across the catalog and the resolver.
 const (
@@ -189,16 +206,20 @@ const (
 	KeyLogger        = "logger"
 	KeySettings      = "settings"
 	KeyObservableVM  = "observableviewmodel"
-	KeyCoil          = "coil"
-	KeyPlayLocation  = "play-services-location"
-	KeyMaps          = "maps-compose"
-	KeyIcons         = "composables-icons"
-	KeyVico          = "vico"
-	KeySupabase      = "supabase"
-	KeyEspresso      = "androidx-espresso"
-	KeyTestExt       = "androidx-testExt"
-	KeyJUnit         = "junit"
-	KeyTurbine       = "turbine"
+	// KeyObservableVMSwift is the Swift half of the same release. It is
+	// resolved but never written to libs.versions.toml - no Library or Plugin
+	// references it - because its home is the iOS Package.swift.
+	KeyObservableVMSwift = "observableviewmodel-swift"
+	KeyCoil              = "coil"
+	KeyPlayLocation      = "play-services-location"
+	KeyMaps              = "maps-compose"
+	KeyIcons             = "composables-icons"
+	KeyVico              = "vico"
+	KeySupabase          = "supabase"
+	KeyEspresso          = "androidx-espresso"
+	KeyTestExt           = "androidx-testExt"
+	KeyJUnit             = "junit"
+	KeyTurbine           = "turbine"
 )
 
 // Section names, in the order they appear in the generated catalog.
@@ -309,6 +330,9 @@ func VersionKeys() []VersionKey {
 			Probe: Coordinate{"com.russhwolf", "multiplatform-settings", Central}, Baseline: "1.3.0"},
 		{Key: KeyObservableVM, Section: "Network & Multiplatform Utilities",
 			Probe:    Coordinate{"com.rickclephas.kmp", "kmp-observableviewmodel-core", Central},
+			Baseline: "1.0.6"},
+		{Key: KeyObservableVMSwift, Section: "Network & Multiplatform Utilities",
+			Probe:    Coordinate{"https://github.com/rickclephas", "KMP-ObservableViewModel", Swift},
 			Baseline: "1.0.6"},
 		{Key: KeyCoil, Section: "Network & Multiplatform Utilities",
 			Probe: Coordinate{"io.coil-kt.coil3", "coil-compose", Central}, Baseline: "3.5.0"},

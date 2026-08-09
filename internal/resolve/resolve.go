@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -116,6 +117,30 @@ type Request struct {
 	CompileSDK int
 	// GradleVer pins the Gradle distribution; empty resolves the current one.
 	GradleVer string
+
+	// Pair couples keys that are published together and have to match.
+	Pair []PairRule
+}
+
+// PairRule says that one version key follows another exactly.
+//
+// Some libraries ship two halves from one release - a Kotlin artifact and a
+// Swift package, say - which read each other's internals and so cannot be
+// mixed across versions. Resolving each half independently would happily pick
+// a working pair most of the time and a broken one the week after a release.
+//
+// The rule is generic because the situation is: any two keys resolved from
+// different repositories that move as one want this. A template declares the
+// rules it needs; the resolver knows nothing about which libraries they are.
+type PairRule struct {
+	// Lead is the key whose resolved version wins.
+	Lead string
+	// Follow is the key that takes Lead's version, when it has that version to
+	// give.
+	Follow string
+	// Label names the library in the note printed when the two cannot be
+	// matched, so the message says something rather than naming two keys.
+	Label string
 }
 
 // Empty reports whether there is nothing to resolve, so the caller can skip
@@ -141,9 +166,16 @@ func (r Request) Signature() string {
 	}
 	sort.Strings(extra)
 
-	return fmt.Sprintf("%s|%v|%d|%d|%s|%s|%s|%s",
+	pairs := make([]string, 0, len(r.Pair))
+	for _, p := range r.Pair {
+		pairs = append(pairs, p.Lead+"->"+p.Follow)
+	}
+	sort.Strings(pairs)
+
+	return fmt.Sprintf("%s|%v|%d|%d|%s|%s|%s|%s|%s",
 		r.Channel, r.Offline, r.MinSDK, r.CompileSDK, r.GradleVer,
-		strings.Join(keys, ","), strings.Join(overrides, ","), strings.Join(extra, ","))
+		strings.Join(keys, ","), strings.Join(overrides, ","), strings.Join(extra, ","),
+		strings.Join(pairs, ","))
 }
 
 // definitions indexes every version key this request can resolve: the catalog's
@@ -303,6 +335,7 @@ func Run(ctx context.Context, req Request) *Result {
 		applyAndroidSDK(res, req, client, ctx)
 		tick("android sdk")
 	}
+	applyPairs(res, candidates, req)
 	applyFixed(res, req)
 
 	if len(res.Failed) > 0 {
@@ -528,6 +561,46 @@ func applyFixed(res *Result, req Request) {
 		}
 		res.Versions[key] = value
 		res.Sources[key] = "pinned"
+	}
+}
+
+// applyPairs makes each rule's Follow key take its Lead key's exact version.
+//
+// It runs after every key has been picked, so Lead is whatever the rest of the
+// resolver settled on - including anything a compatibility pass stepped back.
+// A Follow key that cannot supply that version keeps its own pick and says so:
+// the alternative is failing a whole generation run over one library, and the
+// mismatch is worth a sentence rather than an error.
+func applyPairs(res *Result, candidates map[string][]string, req Request) {
+	for _, rule := range req.Pair {
+		if rule.Lead == "" || rule.Follow == "" {
+			continue
+		}
+		// An explicit pin outranks the rule: the user asked for that version.
+		if _, pinned := req.Overrides[rule.Follow]; pinned {
+			continue
+		}
+		lead, ok := res.Versions[rule.Lead]
+		if !ok || lead == "" {
+			continue
+		}
+		if res.Versions[rule.Follow] == lead {
+			res.Sources[rule.Follow] = "matched " + rule.Lead
+			continue
+		}
+
+		if slices.Contains(candidates[rule.Follow], lead) {
+			res.Versions[rule.Follow] = lead
+			res.Sources[rule.Follow] = "matched " + rule.Lead
+			continue
+		}
+
+		// Nothing to match against, either because the lookup failed or
+		// because the two halves genuinely have not been released together.
+		res.note(Warn,
+			"%s does not publish %s, so %s stays on %s. The two halves are meant to match - "+
+				"check the project's releases if it misbehaves.",
+			rule.Label, lead, rule.Follow, res.V(rule.Follow))
 	}
 }
 

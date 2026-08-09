@@ -233,12 +233,25 @@ func (t *Template) Versions(a *scaffold.Answers) resolve.Request {
 		MinSDK:  minSDK,
 	}
 	for _, p := range v.Probe {
-		req.Extra = append(req.Extra, catalog.VersionKey{
-			Key:        p.Key,
-			Probe:      catalog.Coordinate{Group: p.Group, Artifact: p.Artifact, Repo: parseRepo(p.Repo)},
-			Baseline:   p.Baseline,
-			MinChannel: catalog.ParseChannel(p.MinChannel),
-		})
+		key := catalog.VersionKey{
+			Key:      p.Key,
+			Probe:    catalog.Coordinate{Group: p.Group, Artifact: p.Artifact, Repo: parseRepo(p.Repo)},
+			Baseline: p.Baseline,
+		}
+		// min_channel raises the floor for one key. Left out it must mean "no
+		// floor" - ParseChannel answers Preview for anything it does not
+		// recognise, which would quietly put every probe on the preview track.
+		if p.MinChannel != "" {
+			key.MinChannel = catalog.ParseChannel(p.MinChannel)
+		}
+		req.Extra = append(req.Extra, key)
+	}
+	for _, p := range v.Pair {
+		label := p.Label
+		if label == "" {
+			label = p.Lead
+		}
+		req.Pair = append(req.Pair, resolve.PairRule{Lead: p.Lead, Follow: p.Follow, Label: label})
 	}
 	return req
 }
@@ -249,6 +262,8 @@ func parseRepo(s string) catalog.Repo {
 		return catalog.Google
 	case "portal", "gradle", "plugins":
 		return catalog.Portal
+	case "swift", "spm":
+		return catalog.Swift
 	default:
 		return catalog.Central
 	}

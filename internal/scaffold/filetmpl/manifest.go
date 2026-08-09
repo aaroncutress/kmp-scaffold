@@ -133,6 +133,8 @@ type VersionsBlock struct {
 	Keys []string `toml:"keys"`
 	// Probe declares coordinates the catalog does not already know about.
 	Probe []ProbeDef `toml:"probe"`
+	// Pair couples two keys that are published together and must match.
+	Pair []PairDef `toml:"pair"`
 	// Android turns on the Android SDK passes.
 	Android bool `toml:"android"`
 	// MinSDKFrom names the question holding the minSdk answer.
@@ -151,6 +153,17 @@ type ProbeDef struct {
 	Repo       string `toml:"repo"`
 	Baseline   string `toml:"baseline"`
 	MinChannel string `toml:"min_channel"`
+}
+
+// PairDef makes one version key follow another exactly, for libraries whose
+// halves are published together - a Kotlin artifact and its Swift package, say.
+type PairDef struct {
+	// Lead is the key whose version wins.
+	Lead string `toml:"lead"`
+	// Follow is the key that takes Lead's version when it has it.
+	Follow string `toml:"follow"`
+	// Label names the library in the note shown when the two cannot match.
+	Label string `toml:"label"`
 }
 
 // FileDef is one output, or - with a glob - a subtree of them.

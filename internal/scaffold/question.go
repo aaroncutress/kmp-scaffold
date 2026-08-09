@@ -109,6 +109,10 @@ type Answers struct {
 	// rather than an answer, so it is never persisted.
 	Offline bool
 
+	// InitGit asks for a git repository once the project exists. Also a
+	// property of this run rather than of the project.
+	InitGit bool
+
 	state any
 }
 

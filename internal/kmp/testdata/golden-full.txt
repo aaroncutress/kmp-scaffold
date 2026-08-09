@@ -1,4 +1,4 @@
-.gitignore  1753825ad00c7f7c
+.gitignore  6f51510c0aed341e
 .kmp-scaffold.json  1458c7348fdf0512
 .run/Build iOS XCFramework (Debug).run.xml  2d0cf07f32596df4
 .run/Generate Build Konfig.run.xml  7345c460a152d793
@@ -53,7 +53,7 @@ gradle.properties  b315554ce039fd7a
 gradle/libs.versions.toml  aac945a4f981ad1f
 gradle/wrapper/gradle-wrapper.properties  1d126b2f29d1a878
 iosApp/Configuration/Config.xcconfig  bb4238f31b3fda55
-iosApp/Packages/Features/Package.swift  5ad37d8bec0d4dac
+iosApp/Packages/Features/Package.swift  915a0dd7e9c279cc
 iosApp/Packages/Features/Sources/CoreNavigation/HomeRoute.swift  1d05e62ce92d8f92
 iosApp/Packages/Features/Sources/CoreNavigation/Resolve.swift  b1b646dcffd992f9
 iosApp/Packages/Features/Sources/CoreNavigation/SettingsRoute.swift  ec0fe37284f8add6

@@ -613,3 +613,288 @@ func TestRegistryLoadsAPathTemplate(t *testing.T) {
 		t.Errorf("source = %v, want path", tmpl.Meta().Source.Kind)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Recipes
+// ---------------------------------------------------------------------------
+
+// apply runs a recipe the way the CLI does.
+func apply(t *testing.T, tmpl scaffold.Template, root, recipe, name string,
+	answers map[string]any) (*scaffold.Report, *model.Manifest, error) {
+	t.Helper()
+
+	r, ok := scaffold.FindRecipe(tmpl, recipe)
+	if !ok {
+		t.Fatalf("the template has no %q recipe", recipe)
+	}
+
+	manifest, _, err := model.LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a := scaffold.NewAnswers()
+	a.Project = manifest.Project
+	a.Set(scaffold.NameAnswer, name)
+	for k, v := range answers {
+		a.Set(k, v)
+	}
+
+	report, err := r.Apply(context.Background(), scaffold.RecipeRequest{
+		Recipe:   r.Name,
+		Manifest: manifest,
+		Root:     root,
+		Name:     name,
+		Answers:  a,
+		Writer:   render.NewWriter(root, false, false),
+		Version:  "test",
+	})
+	return report, manifest, err
+}
+
+func mustApply(t *testing.T, tmpl scaffold.Template, root, recipe, name string,
+	answers map[string]any) (*scaffold.Report, *model.Manifest) {
+	t.Helper()
+	report, manifest, err := apply(t, tmpl, root, recipe, name, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return report, manifest
+}
+
+func TestRecipeWritesFilesAndWiresThemIn(t *testing.T) {
+	tmpl := open(t, exampleDir)
+
+	if len(tmpl.Recipes()) != 1 || tmpl.Recipes()[0].Name != "route" {
+		t.Fatalf("recipes = %+v, want just `route`", tmpl.Recipes())
+	}
+	if got := tmpl.Recipes()[0].NounOr(); got != "route" {
+		t.Errorf("noun = %q - the template names what it adds, not the tool", got)
+	}
+
+	a := tmpl.NewAnswers()
+	a.Project = model.Project{Name: "Orders API", Package: "com.example.orders"}
+	root := generate(t, tmpl, a)
+
+	report, manifest := mustApply(t, tmpl, root, "route", "order-history", nil)
+	if len(report.Warnings) > 0 {
+		t.Errorf("unexpected warnings: %v", report.Warnings)
+	}
+
+	// The files the recipe declares, with the name in their paths.
+	for _, rel := range []string{
+		"src/main/kotlin/com/example/orders/routes/OrderHistoryRoutes.kt",
+		"src/main/kotlin/com/example/orders/service/OrderHistoryService.kt",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("expected %s to exist: %v", rel, err)
+		}
+	}
+
+	// The edits: a line above each anchor, and an import sorted into place.
+	app := read(t, root, "src/main/kotlin/com/example/orders/Application.kt")
+	if !strings.Contains(app, "        orderHistoryRoutes()\n        // ktor-service:routes") {
+		t.Errorf("the route call did not land above the anchor, at its indentation:\n%s", app)
+	}
+	if !strings.Contains(app, "import com.example.orders.routes.orderHistoryRoutes") {
+		t.Errorf("the import was not added:\n%s", app)
+	}
+
+	modules := read(t, root, "src/main/kotlin/com/example/orders/Modules.kt")
+	if !strings.Contains(modules, "single { OrderHistoryService() }") {
+		t.Errorf("the service was not registered:\n%s", modules)
+	}
+
+	// And it is remembered, under the recipe that made it.
+	f := manifest.FindFeatureOf("route", "order-history")
+	if f == nil {
+		t.Fatal("the manifest does not record the new route")
+	}
+	if f.Recipe != "route" {
+		t.Errorf("recipe = %q, want route", f.Recipe)
+	}
+}
+
+// Applying the same recipe twice changes nothing the second time - the
+// guarantee wire already provides, now reachable from a manifest.
+func TestRecipeIsIdempotent(t *testing.T) {
+	tmpl := open(t, exampleDir)
+	a := tmpl.NewAnswers()
+	a.Project = model.Project{Name: "Orders API", Package: "com.example.orders"}
+	root := generate(t, tmpl, a)
+
+	mustApply(t, tmpl, root, "route", "order-history", nil)
+	before := read(t, root, "src/main/kotlin/com/example/orders/Application.kt")
+	beforeModules := read(t, root, "src/main/kotlin/com/example/orders/Modules.kt")
+
+	report, _ := mustApply(t, tmpl, root, "route", "order-history", nil)
+	for _, r := range report.Wire {
+		if r.Inserted > 0 {
+			t.Errorf("the second run inserted %d line(s) into %s", r.Inserted, r.Path)
+		}
+	}
+
+	if got := read(t, root, "src/main/kotlin/com/example/orders/Application.kt"); got != before {
+		t.Errorf("Application.kt changed on the second run:\n%s", got)
+	}
+	if got := read(t, root, "src/main/kotlin/com/example/orders/Modules.kt"); got != beforeModules {
+		t.Errorf("Modules.kt changed on the second run:\n%s", got)
+	}
+}
+
+// A missing anchor is reported, not fatal: the user may have reorganised the
+// file, and telling them which one beats refusing to do anything.
+func TestRecipeWarnsAboutAMissingAnchor(t *testing.T) {
+	tmpl := open(t, exampleDir)
+	a := tmpl.NewAnswers()
+	a.Project = model.Project{Name: "Orders API", Package: "com.example.orders"}
+	root := generate(t, tmpl, a)
+
+	appPath := filepath.Join(root, filepath.FromSlash(
+		"src/main/kotlin/com/example/orders/Application.kt"))
+	stripped := strings.ReplaceAll(read(t, root, "src/main/kotlin/com/example/orders/Application.kt"),
+		"        // ktor-service:routes\n", "")
+	if err := os.WriteFile(appPath, []byte(stripped), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, _ := mustApply(t, tmpl, root, "route", "order-history", nil)
+	if len(report.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want one naming the file", report.Warnings)
+	}
+	if !strings.Contains(report.Warnings[0], "Application.kt") {
+		t.Errorf("the warning does not name the file: %q", report.Warnings[0])
+	}
+
+	// The rest of the recipe still ran.
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(
+		"src/main/kotlin/com/example/orders/routes/OrderHistoryRoutes.kt"))); err != nil {
+		t.Error("a missing anchor stopped the files being written")
+	}
+}
+
+// A recipe's `when` is evaluated against what the project was generated with,
+// so a question is only asked when this project can answer it usefully.
+func TestRecipeQuestionReadsTheProjectsAnswers(t *testing.T) {
+	tmpl := open(t, exampleDir)
+	recipe := tmpl.Recipes()[0]
+
+	manifestWith := func(extras ...string) *model.Manifest {
+		t.Helper()
+		m, err := model.NewManifest("test", tmpl.Meta().Ref(),
+			model.Project{Name: "Orders API", Package: "com.example.orders"},
+			map[string]any{"extras": extras}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &m
+	}
+
+	asked := func(m *model.Manifest) bool {
+		t.Helper()
+		a := scaffold.NewAnswers()
+		a.Project = m.Project
+		for _, q := range recipe.Questions(m) {
+			if q.ID == "auth" {
+				return !q.Skip(a)
+			}
+		}
+		t.Fatal("the auth question is missing")
+		return false
+	}
+
+	if asked(manifestWith()) {
+		t.Error("a project with no auth extra should not be asked about it")
+	}
+	if !asked(manifestWith("auth")) {
+		t.Error("a project with the auth extra should be asked")
+	}
+}
+
+// The answer reaches the rendered file, and so does its absence.
+func TestRecipeAnswersReachTheRenderedFiles(t *testing.T) {
+	tmpl := open(t, exampleDir)
+	a := tmpl.NewAnswers()
+	a.Project = model.Project{Name: "Orders API", Package: "com.example.orders"}
+	root := generate(t, tmpl, a)
+
+	mustApply(t, tmpl, root, "route", "billing", map[string]any{"auth": true})
+	guarded := read(t, root, "src/main/kotlin/com/example/orders/routes/BillingRoutes.kt")
+	if !strings.Contains(guarded, "authenticate {") {
+		t.Errorf("the auth answer did not reach the rendered route:\n%s", guarded)
+	}
+
+	mustApply(t, tmpl, root, "route", "status", map[string]any{"auth": false})
+	plain := read(t, root, "src/main/kotlin/com/example/orders/routes/StatusRoutes.kt")
+	if strings.Contains(plain, "authenticate {") {
+		t.Errorf("a route that did not ask for auth got it anyway:\n%s", plain)
+	}
+}
+
+func TestRecipeValidation(t *testing.T) {
+	base := `
+schema = 1
+[template]
+id = "x"
+[[files]]
+from = "files/hello.txt.tmpl"
+to = "hello.txt"
+`
+	for _, tc := range []struct {
+		name, manifest, want string
+	}{
+		{"empty recipe", base + "[recipes.thing]\nlabel = \"Thing\"\n", "would do nothing"},
+		{"bad name", base + "[recipes.\"Not Valid\"]\n[[recipes.\"Not Valid\".edits]]\npath = \"a\"\nimports = [\"x\"]\n", "lowercase letters"},
+		{"edit with no path", base + "[recipes.thing]\n[[recipes.thing.edits]]\nanchor = \"a\"\nlines = [\"x\"]\n", "no `path`"},
+		{"edit with nothing to do", base + "[recipes.thing]\n[[recipes.thing.edits]]\npath = \"a\"\n", "neither `lines` nor `imports`"},
+		{"lines with no anchor", base + "[recipes.thing]\n[[recipes.thing.edits]]\npath = \"a\"\nlines = [\"x\"]\n", "no `anchor`"},
+		{"reserved question id", base + "[recipes.thing]\n[[recipes.thing.questions]]\nid = \"name\"\nprompt = \"?\"\n[[recipes.thing.edits]]\npath = \"a\"\nimports = [\"x\"]\n", "reserved"},
+		{"missing recipe file", base + "[recipes.thing]\n[[recipes.thing.files]]\nfrom = \"recipes/nope.tmpl\"\nto = \"a\"\n", "does not exist"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := write(t, map[string]string{
+				"template.toml":        tc.manifest,
+				"files/hello.txt.tmpl": "hi\n",
+			})
+			_, err := filetmpl.Open(dir, scaffold.Source{})
+			if err == nil {
+				t.Fatalf("expected an error mentioning %q", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// An edit's path is templated, so it goes through the same check every written
+// path does.
+func TestRecipeEditPathsCannotEscape(t *testing.T) {
+	dir := write(t, map[string]string{
+		"template.toml": `
+schema = 1
+[template]
+id = "escape"
+[[files]]
+from = "files/hello.txt.tmpl"
+to = "hello.txt"
+[recipes.thing]
+[[recipes.thing.edits]]
+path = "../../{{ .Feature.Name }}.kt"
+anchor = "escape:here"
+lines = ["x"]
+`,
+		"files/hello.txt.tmpl": "hi\n",
+	})
+	tmpl := open(t, dir)
+
+	a := tmpl.NewAnswers()
+	a.Project = model.Project{Name: "Widget"}
+	root := generate(t, tmpl, a)
+
+	if _, _, err := apply(t, tmpl, root, "thing", "evil", nil); err == nil {
+		t.Fatal("an edit path escaping the project should be refused")
+	} else if !strings.Contains(err.Error(), "escapes") {
+		t.Errorf("error = %v, want it to say the path escapes", err)
+	}
+}

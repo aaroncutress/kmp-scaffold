@@ -317,7 +317,7 @@ func (t Template) Generate(ctx context.Context, req scaffold.GenRequest) (*scaff
 		return nil, err
 	}
 
-	features, err := featureRecords(report.Features)
+	features, err := featureRecords("feature", report.Features)
 	if err != nil {
 		return nil, err
 	}

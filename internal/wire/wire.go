@@ -66,6 +66,14 @@ type Edit struct {
 	Lines []string
 	// Imports are added to the file's import block (Kotlin files only).
 	Imports []string
+	// Key decides whether this block is already present, instead of its first
+	// meaningful line.
+	//
+	// The default is right when that first line is distinctive - which is why
+	// the built-in template does not set this - and wrong when a template
+	// renders many blocks that open the same way, where the second insertion
+	// would silently do nothing.
+	Key string
 }
 
 // Result records what an Apply run did to one file.
@@ -123,7 +131,7 @@ func (a *Applier) Apply(e Edit) error {
 	}
 
 	if e.Anchor != "" && len(e.Lines) > 0 {
-		updated, added, found := insertBeforeAnchor(content, e.Anchor, e.Lines)
+		updated, added, found := insertBeforeAnchor(content, e.Anchor, e.Lines, e.Key)
 		if !found {
 			a.results = append(a.results, Result{Path: e.Path, Missing: true})
 			return nil
@@ -155,7 +163,7 @@ func (a *Applier) MissingAnchors() []string {
 
 // insertBeforeAnchor inserts lines immediately above the anchor line, matching
 // its indentation. Lines already present anywhere in the file are skipped.
-func insertBeforeAnchor(content, anchor string, lines []string) (string, int, bool) {
+func insertBeforeAnchor(content, anchor string, lines []string, key string) (string, int, bool) {
 	fileLines := strings.Split(content, "\n")
 	anchorIdx := -1
 	for i, l := range fileLines {
@@ -170,21 +178,35 @@ func insertBeforeAnchor(content, anchor string, lines []string) (string, int, bo
 
 	indent := leadingWhitespace(fileLines[anchorIdx])
 
-	existing := make(map[string]bool, len(fileLines))
-	for _, l := range fileLines {
-		existing[strings.TrimSpace(l)] = true
-	}
-
 	// A multi-line insertion (a whole SwiftUI tab, say) carries its own nesting.
 	// Strip the block's common indent and re-apply the anchor's, so the inserted
 	// code keeps its shape wherever the anchor happens to sit.
 	base := commonIndent(lines)
 
 	// Duplicate detection is per block rather than per line: a block's inner
-	// lines ("}", "content") repeat all over a file, so only its first
-	// meaningful line decides whether it is already there.
-	if first := firstMeaningful(lines); first == "" || existing[first] {
-		return content, 0, true
+	// lines ("}", "content") repeat all over a file, so one thing decides
+	// whether the whole block is already there.
+	//
+	// By default that is the block's first meaningful line, matched exactly. An
+	// explicit key is matched as a fragment instead, because the point of
+	// giving one is to name what is distinctive about this block - a route
+	// name, say - rather than to repeat a whole line of it.
+	if key = strings.TrimSpace(key); key != "" {
+		for _, l := range fileLines {
+			if strings.Contains(l, key) {
+				return content, 0, true
+			}
+		}
+	} else {
+		first := firstMeaningful(lines)
+		if first == "" {
+			return content, 0, true
+		}
+		for _, l := range fileLines {
+			if strings.TrimSpace(l) == first {
+				return content, 0, true
+			}
+		}
 	}
 
 	var toInsert []string

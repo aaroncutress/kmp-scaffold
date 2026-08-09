@@ -317,11 +317,10 @@ func printNextSteps(t scaffold.Template, steps []scaffold.NextStep, root string)
 
 	fmt.Println()
 	// Only offer `add` for a template that can actually extend what it made.
-	if ft, ok := t.(scaffold.FeatureTemplate); ok {
-		noun := ft.FeatureNoun()
+	for _, r := range t.Recipes() {
 		fmt.Println(sMuted.Render(fmt.Sprintf(
-			"  kmp-scaffold add %s <name>%s to add a %s", noun,
-			strings.Repeat(" ", max(1, 15-len(noun))), noun)))
+			"  kmp-scaffold add %s <name>%s to add a %s", r.Name,
+			strings.Repeat(" ", max(1, 15-len(r.Name))), r.NounOr())))
 	}
 	fmt.Println(sMuted.Render("  kmp-scaffold versions            to check for newer releases"))
 }

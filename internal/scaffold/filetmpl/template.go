@@ -87,7 +87,16 @@ func (t *Template) Questions() []scaffold.Question {
 	return out
 }
 
+// question builds a wizard question whose conditions are evaluated against the
+// project being generated.
 func (t *Template) question(def QuestionDef) scaffold.Question {
+	return t.questionWith(def, func(a *scaffold.Answers) Ctx { return t.ctx(a, nil) })
+}
+
+// questionWith is the same, against whatever context the caller supplies. A
+// recipe's questions need one carrying the project's own answers, so a `when`
+// can ask what the project was generated with.
+func (t *Template) questionWith(def QuestionDef, ctxFor func(*scaffold.Answers) Ctx) scaffold.Question {
 	kind := scaffold.Kind(def.Kind)
 
 	q := scaffold.Question{
@@ -102,7 +111,7 @@ func (t *Template) question(def QuestionDef) scaffold.Question {
 	if def.When != "" {
 		when := def.When
 		q.SkipFor = func(a *scaffold.Answers) bool {
-			ok, err := t.engine.Truthy(when, t.ctx(a, nil))
+			ok, err := t.engine.Truthy(when, ctxFor(a))
 			// A condition that will not render is a template bug. Asking the
 			// question is the recoverable choice: the user can still answer it,
 			// and the answer is recorded either way.
@@ -113,7 +122,7 @@ func (t *Template) question(def QuestionDef) scaffold.Question {
 	if len(def.Options) > 0 {
 		options := def.Options
 		q.OptionsFor = func(a *scaffold.Answers) []scaffold.Option {
-			ctx := t.ctx(a, nil)
+			ctx := ctxFor(a)
 			out := make([]scaffold.Option, 0, len(options))
 			for _, o := range options {
 				opt := scaffold.Option{ID: o.ID, Label: o.Label, Desc: o.Desc}
@@ -306,9 +315,14 @@ func (t *Template) Summary(a *scaffold.Answers, res *resolve.Result) []scaffold.
 }
 
 func (t *Template) declaredSummary(a *scaffold.Answers) []scaffold.Section {
-	ctx := t.ctx(a, nil)
+	return t.sectionsFrom(t.manifest.Summary, t.ctx(a, nil))
+}
+
+// sectionsFrom renders [[summary]] blocks against a context. It is shared with
+// recipes, which declare their review screen the same way.
+func (t *Template) sectionsFrom(blocks []SummaryBlock, ctx Ctx) []scaffold.Section {
 	var out []scaffold.Section
-	for _, block := range t.manifest.Summary {
+	for _, block := range blocks {
 		if block.When != "" {
 			if ok, err := t.engine.Truthy(block.When, ctx); err != nil || !ok {
 				continue

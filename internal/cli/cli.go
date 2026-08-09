@@ -27,7 +27,7 @@ const usage = `kmp-scaffold - create and extend Kotlin Multiplatform projects
 
 Usage:
   kmp-scaffold new [directory]        Create a project (interactive by default)
-  kmp-scaffold add feature [name]     Add a feature module and wire it in
+  kmp-scaffold add <what> [name]      Apply a template recipe and wire it in
   kmp-scaffold add library <pack>...  Add a library pack to the version catalog
   kmp-scaffold templates [name]       List the templates new can generate from
   kmp-scaffold versions               Show which dependencies have newer releases
@@ -120,6 +120,27 @@ func permute(fs *flag.FlagSet, args []string) (flags, operands []string) {
 		}
 	}
 	return flags, operands
+}
+
+// peekFlag reads one flag's value before a FlagSet exists.
+//
+// `add` has to load the project in order to know which recipe is being applied,
+// and only then can it register that recipe's flags - but the project is where
+// --dir points. This is the one flag that has to be read out of order.
+func peekFlag(args []string, name, fallback string) string {
+	for i, arg := range args {
+		switch {
+		case arg == "--"+name || arg == "-"+name:
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		case strings.HasPrefix(arg, "--"+name+"="):
+			return strings.TrimPrefix(arg, "--"+name+"=")
+		case strings.HasPrefix(arg, "-"+name+"="):
+			return strings.TrimPrefix(arg, "-"+name+"=")
+		}
+	}
+	return fallback
 }
 
 // firstOperand returns the first positional argument, or "".

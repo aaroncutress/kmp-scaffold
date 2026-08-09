@@ -93,7 +93,7 @@ kmp-scaffold new my-app \
 | Command | What it does |
 | --- | --- |
 | `kmp-scaffold new [dir]` | Create a project from a template. Interactive unless `--yes`. |
-| `kmp-scaffold add feature [name]` | Add a feature module and wire it into every place that needs to know about it. |
+| `kmp-scaffold add <what> [name]` | Apply one of the template's recipes and wire it in — `add feature` on a Kotlin Multiplatform project. `add` alone lists them. |
 | `kmp-scaffold add library <pack>…` | Resolve and add a library pack to the version catalog. |
 | `kmp-scaffold templates [name]` | List the templates `new` can generate from, or show what one asks. |
 | `kmp-scaffold versions` | Report which dependencies have newer releases. |

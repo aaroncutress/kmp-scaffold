@@ -247,6 +247,89 @@ command = "docker build -t {{ kebab .Project.Name }} ."
 when    = "{{ .Vars.docker }}"
 ```
 
+#### Recipes
+
+A recipe is a named thing `kmp-scaffold add` can apply to a project this
+template generated — what turns a template from a one-shot scaffold into
+something you keep growing. The name is yours: a Ktor service adds `route`s, the
+built-in Kotlin Multiplatform template adds `feature`s.
+
+```toml
+[recipes.route]
+label       = "Route module"
+description = "A routing file and a service, registered in the router and the Koin graph."
+noun        = "route"                       # what to call it in prompts; defaults to the name
+name_hint   = "Lowercase kebab-case, e.g. order-history."
+
+  # Asked after the name. `when` reads .ProjectVars - what the project was
+  # generated with - so a question only appears when this project can use it.
+  [[recipes.route.questions]]
+  id      = "auth"
+  kind    = "confirm"
+  prompt  = "Require authentication on this route?"
+  default = false
+  when    = '{{ has .ProjectVars.extras "auth" }}'
+
+  # Files, exactly as in [[files]], with .Feature bound to what is being added.
+  [[recipes.route.files]]
+  from = "recipes/route/Routes.kt.tmpl"
+  to   = "src/main/kotlin/{{ packagePath .Project.Package }}/routes/{{ .Feature.Pascal }}Routes.kt"
+
+  # Edits insert into files that already exist.
+  [[recipes.route.edits]]
+  path    = "src/main/kotlin/{{ packagePath .Project.Package }}/Application.kt"
+  anchor  = "ktor-service:routes"
+  lines   = ["{{ .Feature.Camel }}Routes()"]
+  imports = ["import {{ .Project.Package }}.routes.{{ .Feature.Camel }}Routes"]
+```
+
+Run it with `kmp-scaffold add route order-history`. `kmp-scaffold add` on its own
+lists what a project accepts.
+
+##### Anchors
+
+An edit inserts **above an anchor comment**, matching its indentation. The
+generated file has to carry one:
+
+```kotlin
+    routing {
+        healthRoutes()
+        // ktor-service:routes
+    }
+```
+
+Name your anchors `<template-id>:<what>`. They are ordinary comments — delete
+one and the tool tells you which file it could not wire, rather than silently
+doing nothing; move it and the insertion follows.
+
+Every insertion checks first, so **applying the same recipe twice changes
+nothing the second time**. That check looks at the block's first line. When that
+line is not distinctive — every entry in a Koin module opens `single {` — say
+what is:
+
+```toml
+  key = "{{ .Feature.Pascal }}Service()"
+```
+
+`imports` is Kotlin- and Swift-shaped: it finds the file's `import` block and
+sorts the new line into it, falling back to just after `package`. For any other
+language, use a plain anchor instead.
+
+##### What a recipe sees
+
+Everything a `[[files]]` entry sees, plus:
+
+| Field | What it is |
+| --- | --- |
+| `.Feature.Name` `.Kebab` `.Pascal` `.Camel` `.Pkg` | the name being added, in each form |
+| `.Feature.Vars.<id>` | this run's answers |
+| `.ProjectVars.<id>` | the answers the *project* was generated with |
+| `.Project.*` | the project — not the thing being added |
+
+What each recipe added is recorded in `.kmp-scaffold.json` under its name and
+recipe, which is what stops the same thing being added twice. Two recipes may
+each have a `billing`.
+
 ### What a template sees
 
 Every Go template — file contents, `to` paths, `when` conditions, summary values
@@ -306,7 +389,9 @@ Worth stating plainly, because it is where the format stops and Go begins:
 - **Fetch anything.** No Gradle wrapper jar, no downloads. This is deliberate: a
   general fetch primitive is the hole the format otherwise does not have.
 - **Run commands.** There is no `run =`, and there will not be one without a
-  separate opt-in. A template writes files; that is all it can do.
+  separate opt-in. A template writes files and inserts at anchors; that is all
+  it can do.
+- **Remove or rename.** A recipe adds. Undoing one is `git checkout`.
 
 If you need any of those, write a Go template — see
 [extending kmp-scaffold](extending.md#adding-a-template). `kmp-mobile` is the

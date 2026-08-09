@@ -346,7 +346,7 @@ func kmpManifest(t *testing.T) *model.Manifest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, err := model.NewFeature("home", kmp.FeatureVars{Android: true, RootTab: true})
+	rec, err := model.NewFeature("feature", "home", kmp.FeatureVars{Android: true, RootTab: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,9 +359,11 @@ func TestFeatureFlowCollectsAnswers(t *testing.T) {
 	manifest := kmpManifest(t)
 
 	answers := scaffold.NewAnswers()
+	answers.Project = manifest.Project
 	answers.Set(kmp.QFeatureTargets, []string{"android", "shared"})
 
-	w := FeatureFlow(template, manifest, answers)
+	recipe := template.Recipes()[0]
+	w := RecipeFlow(recipe, manifest, answers)
 	w.Init()
 
 	typeText(w, "billing")
@@ -369,8 +371,11 @@ func TestFeatureFlowCollectsAnswers(t *testing.T) {
 	w.Update(key("enter")) // keep both -> presentation
 	w.Update(key("enter")) // full screen -> review
 
-	if got := w.Answers().Project.Name; got != "billing" {
+	if got := w.Answers().Str(scaffold.NameAnswer); got != "billing" {
 		t.Errorf("name = %q, want billing", got)
+	}
+	if got := w.Answers().Project.Name; got != "Tunesic" {
+		t.Errorf("project name = %q - a recipe must not overwrite it with the feature's", got)
 	}
 	targets := w.Answers().Strs(kmp.QFeatureTargets)
 	if !model.Has(targets, "android") || !model.Has(targets, "shared") {
@@ -390,7 +395,10 @@ func TestFeatureFlowCollectsAnswers(t *testing.T) {
 }
 
 func TestFeatureFlowRejectsDuplicateNames(t *testing.T) {
-	w := FeatureFlow(kmp.Template{}, kmpManifest(t), scaffold.NewAnswers())
+	manifest := kmpManifest(t)
+	answers := scaffold.NewAnswers()
+	answers.Project = manifest.Project
+	w := RecipeFlow(kmp.Template{}.Recipes()[0], manifest, answers)
 	w.Init()
 
 	typeText(w, "home")
@@ -399,7 +407,7 @@ func TestFeatureFlowRejectsDuplicateNames(t *testing.T) {
 	if w.idx != 0 {
 		t.Error("a duplicate feature name was accepted")
 	}
-	if !strings.Contains(w.View(), "already exists") {
+	if !strings.Contains(w.View(), "already has a feature") {
 		t.Errorf("no explanation shown:\n%s", w.View())
 	}
 }

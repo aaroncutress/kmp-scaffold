@@ -1,10 +1,10 @@
 // Package scaffold defines what a template is.
 //
 // A template owns a whole generatable project: the questions it asks, the files
-// it writes, and - through the feature interface below - the things it can add
-// to a project later. The tool itself only knows about the universal parts (a
-// project's name, directory and package, and the list of features it has), so
-// adding a template does not mean changing the wizard, the CLI or the manifest.
+// it writes, and the recipes it offers for extending that project later. The
+// tool itself only knows about the universal parts (a project's name, directory
+// and package, and the list of things added to it), so adding a template does
+// not mean changing the wizard, the CLI or the manifest.
 //
 // Two kinds of template exist. Built-in ones are Go code and can do anything:
 // compute options from a registry, run compatibility rules over resolved
@@ -126,29 +126,11 @@ type Template interface {
 
 	// NextSteps is what to print after generating.
 	NextSteps(*Answers) []NextStep
-}
 
-// FeatureTemplate is implemented by templates that can extend a project they
-// generated. A template without it is not broken - `add feature` just says so
-// rather than half-generating something.
-//
-// This is the first of what will become named recipes; the shape is kept narrow
-// on purpose until there is a second one.
-type FeatureTemplate interface {
-	Template
-
-	// FeatureNoun is what this template calls the thing being added, so the
-	// prompts read naturally: "feature", "route", "screen".
-	FeatureNoun() string
-
-	// FeatureQuestions are asked after the universal name question.
-	FeatureQuestions(*model.Manifest) []Question
-
-	// FeatureSummary drives the review screen.
-	FeatureSummary(*model.Manifest, *Answers) []Section
-
-	// AddFeature writes the new files and wires them into the existing ones.
-	AddFeature(context.Context, FeatureRequest) (*Report, error)
+	// Recipes are the named things `kmp-scaffold add` can apply to a project
+	// this template generated. Nil means it generates a project in one go and
+	// has nothing to add to it.
+	Recipes() []Recipe
 }
 
 // Describable is implemented by templates that can say what they write without
@@ -166,19 +148,6 @@ type GenRequest struct {
 	Writer  *render.Writer
 	// Version is the kmp-scaffold version, stamped into generated headers.
 	Version string
-}
-
-// FeatureRequest is everything AddFeature needs.
-type FeatureRequest struct {
-	// Manifest is the project's, already loaded. AddFeature updates and saves it.
-	Manifest *model.Manifest
-	Root     string
-	// Name is the feature's name, validated as kebab-case by the tool.
-	Name    string
-	Answers *Answers
-	Writer  *render.Writer
-	Version string
-	DryRun  bool
 }
 
 // Report summarises what a generation run did.

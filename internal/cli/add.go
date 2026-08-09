@@ -19,96 +19,193 @@ import (
 )
 
 func runAdd(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return ErrUsage
+	// Which recipe is being applied decides what flags there are, so it has to
+	// be picked out before any of them are parsed.
+	what, rest := splitRecipeName(args)
+
+	// The library catalog is a command of the tool's, not a recipe, so it is
+	// resolved after them: a template that names a recipe "library" gets its
+	// own, and every other project gets this one.
+	recipe, template, root, manifest, err := findRecipe(peekFlag(args, "dir", "."), what)
+	switch {
+	case err != nil && what == "":
+		return err
+	case err != nil:
+		if what == "library" || what == "lib" || what == "dependency" {
+			return runAddLibrary(ctx, rest)
+		}
+		return err
 	}
-	switch args[0] {
-	case "feature":
-		return runAddFeature(ctx, args[1:])
-	case "library", "lib", "dependency":
-		return runAddLibrary(ctx, args[1:])
+
+	return runRecipe(ctx, recipeRun{
+		recipe:   recipe,
+		template: template,
+		manifest: manifest,
+		root:     root,
+		args:     rest,
+	})
+}
+
+// splitRecipeName pulls the first non-flag argument out of the list. It is not
+// necessarily first: `kmp-scaffold add --dir ../app route` is a fair thing to
+// type.
+func splitRecipeName(args []string) (string, []string) {
+	for i, arg := range args {
+		if arg == "--" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		// A flag's value is not the recipe name.
+		if i > 0 && takesAValue(args[i-1]) {
+			continue
+		}
+		return arg, append(append([]string(nil), args[:i]...), args[i+1:]...)
+	}
+	return "", args
+}
+
+// takesAValue reports whether a flag is one of `add`'s value-taking ones, so
+// the argument after it is not mistaken for the recipe name. The list is short
+// because it only has to cover the flags every recipe shares.
+func takesAValue(arg string) bool {
+	switch strings.TrimLeft(arg, "-") {
+	case "dir", "targets", "presentation", "channel":
+		return true
 	default:
-		return fmt.Errorf("unknown thing to add: %q (try `feature` or `library`)", args[0])
+		return false
 	}
 }
 
-func runAddFeature(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("add feature", flag.ContinueOnError)
+// findRecipe loads the project and resolves what to add against the recipes its
+// template offers.
+func findRecipe(dir, what string) (scaffold.Recipe, scaffold.Template, string, *model.Manifest, error) {
+	fail := func(err error) (scaffold.Recipe, scaffold.Template, string, *model.Manifest, error) {
+		return scaffold.Recipe{}, nil, "", nil, err
+	}
+
+	manifest, root, err := model.LoadManifest(dir)
+	if err != nil {
+		return fail(err)
+	}
+	template, err := scaffold.LoadFor(manifest.Template)
+	if err != nil {
+		return fail(err)
+	}
+
+	recipes := template.Recipes()
+	if len(recipes) == 0 {
+		return fail(fmt.Errorf(
+			"the %q template has nothing to add - it generates a project in one go",
+			template.Meta().ID))
+	}
+	if what == "" {
+		return fail(fmt.Errorf("what would you like to add?\n\n%s", recipeList(recipes)))
+	}
+	r, ok := scaffold.FindRecipe(template, what)
+	if !ok {
+		return fail(fmt.Errorf("the %q template cannot add %q.\n\n%s",
+			template.Meta().ID, what, recipeList(recipes)))
+	}
+	return r, template, root, manifest, nil
+}
+
+func recipeList(recipes []scaffold.Recipe) string {
+	var b strings.Builder
+	b.WriteString(sBold.Render("This project accepts") + "\n")
+	for _, r := range recipes {
+		b.WriteString(fmt.Sprintf("  kmp-scaffold add %-10s %s\n", r.Name, sMuted.Render(r.Label)))
+		if r.Description != "" {
+			b.WriteString("  " + strings.Repeat(" ", 27) + sMuted.Render(r.Description) + "\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+type recipeRun struct {
+	recipe   scaffold.Recipe
+	template scaffold.Template
+	manifest *model.Manifest
+	root     string
+	args     []string
+}
+
+func runRecipe(ctx context.Context, run recipeRun) error {
+	r := run.recipe
+	noun := r.NounOr()
+
+	fs := flag.NewFlagSet("add "+r.Name, flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, `Usage: kmp-scaffold add feature [name] [flags]
-
-Creates a feature and wires it into the project: settings.gradle.kts, the app's
-dependencies, the route serializers, the entry provider, the Koin graph and -
-on the modular iOS layout - the Features package and the app coordinator.
-
-Flags:
-`)
+		fmt.Fprintf(os.Stderr, "Usage: kmp-scaffold add %s [name] [flags]\n\n", r.Name)
+		if r.Description != "" {
+			fmt.Fprintf(os.Stderr, "%s\n\n", r.Description)
+		}
+		fmt.Fprintln(os.Stderr, "Flags:")
 		fs.PrintDefaults()
 	}
 
 	var (
-		targets_ = fs.String("targets", "",
-			"Comma-separated: android, ios, shared (default: every one this project supports)")
-		present = fs.String("presentation", "", "above-nav, overlay, dialog or shell (a root tab)")
 		yes     = fs.Bool("yes", false, "Skip the wizard")
 		dryRun  = fs.Bool("dry-run", false, "Report what would change without changing it")
 		force   = fs.Bool("force", false, "Overwrite files that already exist")
 		dir     = fs.String("dir", ".", "Project directory")
 		verbose = fs.Bool("verbose", false, "List every file written")
+
+		// The Kotlin Multiplatform feature recipe has two shortcuts worth
+		// keeping. They are registered only for it, so another template's
+		// recipe does not advertise flags it has never heard of.
+		targetList  *string
+		presentFlag *string
 	)
-	flags, operands := permute(fs, args)
+	if run.template.Meta().ID == kmp.ID && r.Name == "feature" {
+		targetList = fs.String("targets", "",
+			"Comma-separated: android, ios, shared (default: every one this project supports)")
+		presentFlag = fs.String("presentation", "",
+			"above-nav, overlay, dialog or shell (a root tab)")
+	}
+
+	flags, operands := permute(fs, run.args)
 	if err := fs.Parse(flags); err != nil {
 		return ErrUsage
 	}
 
-	manifest, root, err := model.LoadManifest(*dir)
-	if err != nil {
-		return err
-	}
-
-	base, err := scaffold.LoadFor(manifest.Template)
-	if err != nil {
-		return err
-	}
-	template, ok := base.(scaffold.FeatureTemplate)
-	if !ok {
-		return fmt.Errorf(
-			"the %q template has nothing to add - it generates a project in one go",
-			base.Meta().ID)
-	}
-	noun := template.FeatureNoun()
+	_ = dir // already read by the pre-scan that found this recipe
+	manifest, root := run.manifest, run.root
 
 	answers := scaffold.NewAnswers()
+	answers.Project = manifest.Project
 	if positional := firstOperand(operands); positional != "" {
-		answers.Project.Name = model.Kebab(positional)
+		answers.Set(scaffold.NameAnswer, model.Kebab(positional))
 	}
 
-	// By default a feature covers every side of the project it can.
-	targets := kmp.DefaultTargets(manifest)
-	if *targets_ != "" {
-		targets = splitList(*targets_)
-		if err := kmp.ValidateTargets(targets); err != nil {
-			return err
+	if targetList != nil {
+		targets := kmp.DefaultTargets(manifest)
+		if *targetList != "" {
+			targets = splitList(*targetList)
+			if err := kmp.ValidateTargets(targets); err != nil {
+				return err
+			}
 		}
-	}
-	answers.Set(kmp.QFeatureTargets, targets)
-	if *present != "" {
-		answers.Set(kmp.QFeaturePresentation, *present)
+		answers.Set(kmp.QFeatureTargets, targets)
+		if *presentFlag != "" {
+			answers.Set(kmp.QFeaturePresentation, *presentFlag)
+		}
 	}
 
 	if *yes || !interactive() {
-		if answers.Project.Name == "" {
-			return fmt.Errorf("give the %s a name, e.g. `kmp-scaffold add %s billing`", noun, noun)
+		name := answers.Str(scaffold.NameAnswer)
+		if name == "" {
+			return fmt.Errorf("give the %s a name, e.g. `kmp-scaffold add %s billing`", noun, r.Name)
 		}
-		if err := model.ValidateFeatureName(answers.Project.Name); err != nil {
+		if err := model.ValidateFeatureName(name); err != nil {
 			return fmt.Errorf("%s name: %w", noun, err)
 		}
-		if manifest.FindFeature(answers.Project.Name) != nil {
-			return fmt.Errorf("this project already has a %s called %q", noun, answers.Project.Name)
+		if manifest.FindFeatureOf(r.Name, name) != nil {
+			return fmt.Errorf("this project already has a %s called %q", noun, name)
 		}
 	} else {
-		wizard := tui.FeatureFlow(template, manifest, answers)
-		answered, err := wizard.Run(ctx)
+		answered, err := tui.RecipeFlow(r, manifest, answers).Run(ctx)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
 				return errCancelled
@@ -118,11 +215,13 @@ Flags:
 		answers = answered
 	}
 
+	name := answers.Str(scaffold.NameAnswer)
 	writer := render.NewWriter(root, *dryRun, *force)
-	report, err := template.AddFeature(ctx, scaffold.FeatureRequest{
+	report, err := r.Apply(ctx, scaffold.RecipeRequest{
+		Recipe:   r.Name,
 		Manifest: manifest,
 		Root:     root,
-		Name:     answers.Project.Name,
+		Name:     name,
 		Answers:  answers,
 		Writer:   writer,
 		Version:  Version,
@@ -136,7 +235,7 @@ Flags:
 	if *dryRun {
 		fmt.Println(sBold.Render("Dry run - nothing was written."))
 	} else {
-		fmt.Println(sOK.Render("✔ ") + sBold.Render(answers.Project.Name) + sMuted.Render(" added"))
+		fmt.Println(sOK.Render("✔ ") + sBold.Render(name) + sMuted.Render(" added"))
 		printMigrationNotice(manifest)
 	}
 	fmt.Println()
@@ -147,7 +246,7 @@ Flags:
 		fmt.Println("  " + sWarn.Render("! "+w))
 	}
 
-	if !*dryRun {
+	if !*dryRun && run.template.Meta().ID == kmp.ID {
 		fmt.Println()
 		fmt.Println(sMuted.Render("Sync Gradle to pick up the new modules."))
 	}

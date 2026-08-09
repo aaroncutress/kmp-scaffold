@@ -136,3 +136,45 @@ note    = "listens on {{ .Vars.port }}"
 [[next_steps]]
 command = "docker build -t {{ kebab .Project.Name }} ."
 when    = "{{ .Vars.docker }}"
+
+# ---------------------------------------------------------------------------
+# Recipes: what `kmp-scaffold add` can do to a project this template generated.
+# ---------------------------------------------------------------------------
+
+[recipes.route]
+label       = "Route module"
+description = "A routing file and a service, registered in the router and the Koin graph."
+noun        = "route"
+name_hint   = "Lowercase kebab-case, e.g. order-history. Becomes /order-history."
+
+  [[recipes.route.questions]]
+  id      = "auth"
+  kind    = "confirm"
+  prompt  = "Require authentication on this route?"
+  default = false
+  # Only worth asking if the project took the auth extra in the first place.
+  when    = '{{ has .ProjectVars.extras "auth" }}'
+
+  [[recipes.route.files]]
+  from = "recipes/route/Routes.kt.tmpl"
+  to   = "src/main/kotlin/{{ packagePath .Project.Package }}/routes/{{ .Feature.Pascal }}Routes.kt"
+
+  [[recipes.route.files]]
+  from = "recipes/route/Service.kt.tmpl"
+  to   = "src/main/kotlin/{{ packagePath .Project.Package }}/service/{{ .Feature.Pascal }}Service.kt"
+
+  # Edits insert above an anchor comment the generated files carry, and are
+  # idempotent: applying the same recipe twice changes nothing the second time.
+  [[recipes.route.edits]]
+  path    = "src/main/kotlin/{{ packagePath .Project.Package }}/Application.kt"
+  anchor  = "ktor-service:routes"
+  lines   = ["{{ .Feature.Camel }}Routes()"]
+  imports = ["import {{ .Project.Package }}.routes.{{ .Feature.Camel }}Routes"]
+
+  [[recipes.route.edits]]
+  path    = "src/main/kotlin/{{ packagePath .Project.Package }}/Modules.kt"
+  anchor  = "ktor-service:modules"
+  lines   = ["single { {{ .Feature.Pascal }}Service() }"]
+  imports = ["import {{ .Project.Package }}.service.{{ .Feature.Pascal }}Service"]
+  # `single {` opens every line in this block, so name what is distinctive.
+  key     = "{{ .Feature.Pascal }}Service()"

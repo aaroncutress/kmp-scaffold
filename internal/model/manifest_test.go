@@ -15,7 +15,7 @@ func TestManifestRoundTrip(t *testing.T) {
 		RootTabs      []string `json:"rootTabs"`
 	}
 
-	feature, err := NewFeature("home", map[string]any{"rootTab": true})
+	feature, err := NewFeature("feature", "home", map[string]any{"rootTab": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +52,9 @@ func TestManifestRoundTrip(t *testing.T) {
 
 	if f := loaded.FindFeature("home"); f == nil {
 		t.Error("FindFeature(home) found nothing")
+	}
+	if f := loaded.FindFeatureOf("feature", "home"); f == nil {
+		t.Error("FindFeatureOf(feature, home) found nothing")
 	}
 	if loaded.Migrated {
 		t.Error("a current manifest should not be marked as migrated")
@@ -160,6 +163,9 @@ func TestSchema1MigratesLosslessly(t *testing.T) {
 	if err := f.DecodeVars(&home); err != nil {
 		t.Fatal(err)
 	}
+	if f.Recipe != "feature" {
+		t.Errorf("recipe = %q, want the migration to name the only recipe there was", f.Recipe)
+	}
 	if !home.Android || !home.IOS || !home.RootTab || home.Presentation != "shell" {
 		t.Errorf("home = %+v, want an iOS-backed root tab", home)
 	}
@@ -202,8 +208,8 @@ func TestManifestRejectsANewerSchema(t *testing.T) {
 
 func TestPutFeatureReplacesByName(t *testing.T) {
 	m := Manifest{}
-	first, _ := NewFeature("billing", map[string]any{"shared": false})
-	second, _ := NewFeature("billing", map[string]any{"shared": true})
+	first, _ := NewFeature("feature", "billing", map[string]any{"shared": false})
+	second, _ := NewFeature("feature", "billing", map[string]any{"shared": true})
 
 	m.PutFeature(first)
 	m.PutFeature(second)

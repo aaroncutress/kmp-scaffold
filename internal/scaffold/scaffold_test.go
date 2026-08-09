@@ -27,6 +27,7 @@ func (stub) Summary(*Answers, *resolve.Result) []Section           { return nil 
 func (stub) Vars(*Answers) any                                     { return nil }
 func (stub) NextSteps(*Answers) []NextStep                         { return nil }
 func (stub) Generate(context.Context, GenRequest) (*Report, error) { return &Report{}, nil }
+func (stub) Recipes() []Recipe                                     { return nil }
 
 func init() {
 	Register(DefaultTemplate, func() Template { return stub{DefaultTemplate} })

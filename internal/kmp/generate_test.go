@@ -86,11 +86,17 @@ func addFeature(t *testing.T, root string, fr generator.FeatureRequest) (*scaffo
 	}
 
 	a := scaffold.NewAnswers()
-	a.Project.Name = fr.Name
+	a.Project = manifest.Project
+	a.Set(scaffold.NameAnswer, fr.Name)
 	a.Set(kmp.QFeatureTargets, targets)
 	a.Set(kmp.QFeaturePresentation, fr.Presentation)
 
-	report, err := tmpl.AddFeature(context.Background(), scaffold.FeatureRequest{
+	recipe, ok := scaffold.FindRecipe(tmpl, "feature")
+	if !ok {
+		t.Fatal("the kmp template has no feature recipe")
+	}
+	report, err := recipe.Apply(context.Background(), scaffold.RecipeRequest{
+		Recipe:   recipe.Name,
 		Manifest: manifest,
 		Root:     root,
 		Name:     fr.Name,

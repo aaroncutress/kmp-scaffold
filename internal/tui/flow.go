@@ -132,38 +132,48 @@ func universalSteps(meta scaffold.Meta) []Step {
 	return steps
 }
 
-// FeatureFlow builds the wizard for `kmp-scaffold add feature`.
+// RecipeFlow builds the wizard for `kmp-scaffold add <recipe>`.
 //
 // The name question is the tool's, because the name is what stops the same
-// thing being added twice; everything after it belongs to the template.
-func FeatureFlow(t scaffold.FeatureTemplate, m *model.Manifest, answers *scaffold.Answers) *Wizard {
-	noun := t.FeatureNoun()
+// thing being added twice; everything after it belongs to the recipe.
+func RecipeFlow(r scaffold.Recipe, m *model.Manifest, answers *scaffold.Answers) *Wizard {
+	noun := r.NounOr()
+
+	hint := r.NameHint
+	if hint == "" {
+		hint = "Lowercase kebab-case, e.g. firmware-update."
+	}
 
 	steps := []Step{
 		&TextStep{
-			Prompt: fmt.Sprintf("What is the %s called?", noun),
-			Hint:   "Lowercase kebab-case, e.g. firmware-update.",
-			Default: func(a *scaffold.Answers) string {
-				return a.Project.Name
-			},
+			Prompt:  fmt.Sprintf("What is the %s called?", noun),
+			Hint:    hint,
+			Default: func(a *scaffold.Answers) string { return a.Str(scaffold.NameAnswer) },
 			Validate: func(v string, _ *scaffold.Answers) error {
 				if err := model.ValidateFeatureName(v); err != nil {
 					return err
 				}
-				if m.FindFeature(model.Kebab(v)) != nil {
-					return fmt.Errorf("%q already exists in this project", v)
+				if m.FindFeatureOf(r.Name, model.Kebab(v)) != nil {
+					return fmt.Errorf("this project already has a %s called %q", noun, v)
 				}
 				return nil
 			},
-			Apply: func(a *scaffold.Answers, v string) { a.Project.Name = model.Kebab(v) },
+			Apply: func(a *scaffold.Answers, v string) { a.Set(scaffold.NameAnswer, model.Kebab(v)) },
 		},
 	}
 
-	steps = append(steps, StepsFor(t.FeatureQuestions(m))...)
+	if r.Questions != nil {
+		steps = append(steps, StepsFor(r.Questions(m))...)
+	}
 	steps = append(steps, &SummaryStep{
-		Heading:  fmt.Sprintf("Ready to add the %s", noun),
-		Action:   "create",
-		Sections: func(a *scaffold.Answers) []scaffold.Section { return t.FeatureSummary(m, a) },
+		Heading: fmt.Sprintf("Ready to add the %s", noun),
+		Action:  "create",
+		Sections: func(a *scaffold.Answers) []scaffold.Section {
+			if r.Summary == nil {
+				return nil
+			}
+			return r.Summary(m, a)
+		},
 	})
 
 	return NewWizard("kmp-scaffold · add "+noun, answers, steps)

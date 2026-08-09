@@ -15,13 +15,24 @@ const (
 	QFeaturePresentation = "presentation"
 )
 
-// FeatureNoun is what this template calls the thing `add` creates.
-func (Template) FeatureNoun() string { return "feature" }
+// Recipes is what `kmp-scaffold add` can do to a project this template made.
+func (Template) Recipes() []scaffold.Recipe {
+	return []scaffold.Recipe{{
+		Name:        "feature",
+		Noun:        "feature",
+		Label:       "Feature module",
+		Description: "api and impl modules, shared logic and an iOS target, wired into every place that needs to know.",
+		NameHint:    "Lowercase kebab-case, e.g. firmware-update. Becomes feature/<name>/{api,impl}.",
+		Questions:   featureQuestions,
+		Summary:     featureSummary,
+		Apply:       addFeature,
+	}}
+}
 
-// FeatureQuestions asks what the new module should cover and how its screen
+// featureQuestions asks what the new module should cover and how its screen
 // appears. Which options are offered depends on how the project was generated -
 // there is no point offering an iOS target to a project with no iOS app.
-func (Template) FeatureQuestions(m *model.Manifest) []scaffold.Question {
+func featureQuestions(m *model.Manifest) []scaffold.Question {
 	spec, _, err := SpecFrom(m)
 	if err != nil {
 		// The caller has already reported this; asking nothing is better than
@@ -126,10 +137,13 @@ func featureRequest(name string, a *scaffold.Answers) generator.FeatureRequest {
 }
 
 // featureRecords encodes what the generators created into manifest entries.
-func featureRecords(reqs []generator.FeatureRequest) ([]model.Feature, error) {
+func featureRecords(recipe string, reqs []generator.FeatureRequest) ([]model.Feature, error) {
+	if recipe == "" {
+		recipe = "feature"
+	}
 	var out []model.Feature
 	for _, r := range reqs {
-		rec, err := model.NewFeature(r.Name, FeatureVars{
+		rec, err := model.NewFeature(recipe, r.Name, FeatureVars{
 			Android:      r.Android,
 			Shared:       r.Shared,
 			IOS:          r.IOS,
@@ -144,8 +158,8 @@ func featureRecords(reqs []generator.FeatureRequest) ([]model.Feature, error) {
 	return out, nil
 }
 
-// AddFeature generates the feature and wires it into the project.
-func (Template) AddFeature(ctx context.Context, req scaffold.FeatureRequest) (*scaffold.Report, error) {
+// addFeature generates the feature and wires it into the project.
+func addFeature(ctx context.Context, req scaffold.RecipeRequest) (*scaffold.Report, error) {
 	spec, _, err := SpecFrom(req.Manifest)
 	if err != nil {
 		return nil, err
@@ -161,7 +175,7 @@ func (Template) AddFeature(ctx context.Context, req scaffold.FeatureRequest) (*s
 		return nil, err
 	}
 
-	records, err := featureRecords(report.Features)
+	records, err := featureRecords(req.Recipe, report.Features)
 	if err != nil {
 		return nil, err
 	}
@@ -192,10 +206,10 @@ func (Template) AddFeature(ctx context.Context, req scaffold.FeatureRequest) (*s
 	}, nil
 }
 
-// FeatureSummary lists exactly which files will be written and which will be
+// featureSummary lists exactly which files will be written and which will be
 // edited, before anything happens.
-func (Template) FeatureSummary(m *model.Manifest, a *scaffold.Answers) []scaffold.Section {
-	fr := featureRequest(a.Project.Name, a)
+func featureSummary(m *model.Manifest, a *scaffold.Answers) []scaffold.Section {
+	fr := featureRequest(a.Str(scaffold.NameAnswer), a)
 	pascal := model.Pascal(fr.Name)
 	pkg := model.PackageSegment(fr.Name)
 	pkgPath := m.Project.PackagePath()

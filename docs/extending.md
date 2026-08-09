@@ -70,9 +70,24 @@ The rest of the interface is what happens with the answers:
 | `Vars` | What the project records about itself, for a later `add`. |
 | `NextSteps` | What to print once it exists. |
 
-Implement `scaffold.FeatureTemplate` as well and `kmp-scaffold add feature`
-works too. A template without it is not broken — `add` says the template cannot
-extend a project it generated, rather than half-generating something.
+`Recipes()` is what `kmp-scaffold add` drives — the named things this template
+can add to a project it generated:
+
+```go
+func (Template) Recipes() []scaffold.Recipe {
+    return []scaffold.Recipe{{
+        Name: "route", Noun: "route", Label: "Route module",
+        Questions: func(m *model.Manifest) []scaffold.Question { … },
+        Summary:   func(m *model.Manifest, a *scaffold.Answers) []scaffold.Section { … },
+        Apply:     addRoute,
+    }}
+}
+```
+
+The tool asks for the name (and rejects a duplicate), the recipe asks the rest,
+and `Apply` writes the files and applies `wire.Edit`s to the ones that already
+exist. Return nil and `add` says the template generates a project in one go,
+rather than half-generating something.
 
 `internal/kmp` is the worked example. It is a thin adapter: the generation lives
 in `internal/generator`, the libraries in `internal/catalog` and the answers in

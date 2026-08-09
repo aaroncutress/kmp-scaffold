@@ -9,4 +9,5 @@ val appModule = module {
 {{- range .Vars.routes }}
     single { {{ pascal . }}Service() }
 {{- end }}
+    // ktor-service:modules
 }

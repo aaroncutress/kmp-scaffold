@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -37,6 +38,9 @@ type Manifest struct {
 	File     []FileDef      `toml:"files"`
 	NextStep []NextStepDef  `toml:"next_steps"`
 	Summary  []SummaryBlock `toml:"summary"`
+	// Recipes are the named things `kmp-scaffold add` can apply later, keyed by
+	// name. TOML tables are unordered, so they are sorted before use.
+	Recipes map[string]RecipeDef `toml:"recipes"`
 }
 
 // TemplateBlock is the template's identity.
@@ -50,10 +54,42 @@ type TemplateBlock struct {
 	// Sentinels are the files whose presence means a directory already holds a
 	// project of this kind.
 	Sentinels []string `toml:"sentinels"`
-	// FeatureNoun is what `add` calls the thing this template can add. Recipes
-	// are not implemented yet; the field is reserved so a template that sets it
-	// is not rejected out of hand.
-	FeatureNoun string `toml:"feature_noun"`
+}
+
+// RecipeDef is one [recipes.<name>] block: something `kmp-scaffold add` can
+// apply to a project this template generated.
+type RecipeDef struct {
+	Label       string `toml:"label"`
+	Description string `toml:"description"`
+	// Noun is what to call the thing being added in prompts. Defaults to the
+	// recipe's name.
+	Noun string `toml:"noun"`
+	// NameHint is shown under the "what is it called?" question.
+	NameHint string `toml:"name_hint"`
+
+	Question []QuestionDef  `toml:"questions"`
+	File     []FileDef      `toml:"files"`
+	Edit     []EditDef      `toml:"edits"`
+	Summary  []SummaryBlock `toml:"summary"`
+}
+
+// EditDef is one insertion into a file that already exists. Every field is a Go
+// template, and the whole thing maps onto one wire.Edit.
+type EditDef struct {
+	// Path is the file to edit, relative to the project root.
+	Path string `toml:"path"`
+	// Anchor is the comment to insert above.
+	Anchor string `toml:"anchor"`
+	// Lines are inserted, indented to match the anchor.
+	Lines []string `toml:"lines"`
+	// Imports are sorted into the file's import block. Kotlin and Swift only -
+	// the insertion looks for a line starting with `import`.
+	Imports []string `toml:"imports"`
+	// Key decides whether this block is already there, instead of its first
+	// line. Give one when the first line is not distinctive.
+	Key string `toml:"key"`
+	// When is a Go template; the edit is applied when it renders truthy.
+	When string `toml:"when"`
 }
 
 // QuestionDef is one wizard question.
@@ -213,46 +249,61 @@ func (m *Manifest) validate(dir string) error {
 		m.Template.Name = m.Template.ID
 	}
 
-	seen := map[string]bool{}
-	for i := range m.Question {
-		q := &m.Question[i]
-		if q.ID == "" {
-			return fmt.Errorf("question %d has no id", i+1)
-		}
-		if seen[q.ID] {
-			return fmt.Errorf("two questions share the id %q", q.ID)
-		}
-		seen[q.ID] = true
-		if q.Prompt == "" {
-			return fmt.Errorf("question %q has no prompt", q.ID)
-		}
-		kind, err := parseKind(q.Kind)
-		if err != nil {
-			return fmt.Errorf("question %q: %w", q.ID, err)
-		}
-		q.Kind = string(kind)
-		if kind == scaffold.KindSelect || kind == scaffold.KindMultiSelect {
-			if len(q.Options) == 0 {
-				return fmt.Errorf("question %q is a %s but has no options", q.ID, kind)
-			}
-			for j, o := range q.Options {
-				if o.ID == "" {
-					return fmt.Errorf("question %q: option %d has no id", q.ID, j+1)
-				}
-			}
-		}
-		if q.Pattern != "" {
-			if _, err := compilePattern(q.Pattern); err != nil {
-				return fmt.Errorf("question %q: pattern %q: %w", q.ID, q.Pattern, err)
-			}
-		}
+	if err := validateQuestions(m.Question, ""); err != nil {
+		return err
 	}
 
 	if len(m.File) == 0 {
 		return fmt.Errorf("[[files]] is empty, so this template would generate nothing")
 	}
-	for i := range m.File {
-		f := &m.File[i]
+	if err := validateFiles(dir, m.File); err != nil {
+		return err
+	}
+
+	for _, name := range m.RecipeNames() {
+		r := m.Recipes[name]
+		if !templateIDRe.MatchString(name) {
+			return fmt.Errorf("recipe %q: use lowercase letters, digits and dashes", name)
+		}
+		if len(r.File) == 0 && len(r.Edit) == 0 {
+			return fmt.Errorf("recipe %q writes no files and makes no edits, so it would do nothing", name)
+		}
+		if err := validateQuestions(r.Question, "recipe "+name+": "); err != nil {
+			return err
+		}
+		if err := validateFiles(dir, r.File); err != nil {
+			return fmt.Errorf("recipe %q: %w", name, err)
+		}
+		for i, e := range r.Edit {
+			if e.Path == "" {
+				return fmt.Errorf("recipe %q: edit %d has no `path`", name, i+1)
+			}
+			if len(e.Lines) == 0 && len(e.Imports) == 0 {
+				return fmt.Errorf("recipe %q: edit on %q has neither `lines` nor `imports`", name, e.Path)
+			}
+			if len(e.Lines) > 0 && e.Anchor == "" {
+				return fmt.Errorf("recipe %q: edit on %q has `lines` but no `anchor` to insert them above",
+					name, e.Path)
+			}
+		}
+	}
+	return nil
+}
+
+// RecipeNames lists the recipe names in a stable order. TOML tables decode into
+// a Go map, whose iteration order would otherwise change between runs.
+func (m *Manifest) RecipeNames() []string {
+	out := make([]string, 0, len(m.Recipes))
+	for name := range m.Recipes {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func validateFiles(dir string, files []FileDef) error {
+	for i := range files {
+		f := &files[i]
 		if f.From == "" {
 			return fmt.Errorf("file %d has no `from`", i+1)
 		}
@@ -280,6 +331,50 @@ func checkSourcePath(dir, from string) error {
 	base = strings.TrimSuffix(base, "/*")
 	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(base))); err != nil {
 		return fmt.Errorf("file %q does not exist in the template", from)
+	}
+	return nil
+}
+
+// validateQuestions checks a question list and canonicalises each kind. The
+// prefix names which list, so an error in a recipe says which recipe.
+func validateQuestions(questions []QuestionDef, prefix string) error {
+	seen := map[string]bool{}
+	for i := range questions {
+		q := &questions[i]
+		if q.ID == "" {
+			return fmt.Errorf("%squestion %d has no id", prefix, i+1)
+		}
+		if seen[q.ID] {
+			return fmt.Errorf("%stwo questions share the id %q", prefix, q.ID)
+		}
+		seen[q.ID] = true
+		if q.ID == scaffold.NameAnswer {
+			return fmt.Errorf("%squestion id %q is reserved - the tool asks for the name itself",
+				prefix, scaffold.NameAnswer)
+		}
+		if q.Prompt == "" {
+			return fmt.Errorf("%squestion %q has no prompt", prefix, q.ID)
+		}
+		kind, err := parseKind(q.Kind)
+		if err != nil {
+			return fmt.Errorf("%squestion %q: %w", prefix, q.ID, err)
+		}
+		q.Kind = string(kind)
+		if kind == scaffold.KindSelect || kind == scaffold.KindMultiSelect {
+			if len(q.Options) == 0 {
+				return fmt.Errorf("%squestion %q is a %s but has no options", prefix, q.ID, kind)
+			}
+			for j, o := range q.Options {
+				if o.ID == "" {
+					return fmt.Errorf("%squestion %q: option %d has no id", prefix, q.ID, j+1)
+				}
+			}
+		}
+		if q.Pattern != "" {
+			if _, err := compilePattern(q.Pattern); err != nil {
+				return fmt.Errorf("%squestion %q: pattern %q: %w", prefix, q.ID, q.Pattern, err)
+			}
+		}
 	}
 	return nil
 }

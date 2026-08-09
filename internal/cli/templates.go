@@ -104,9 +104,15 @@ func showTemplate(name string) error {
 		}
 	}
 
-	if ft, ok := t.(scaffold.FeatureTemplate); ok {
+	if recipes := t.Recipes(); len(recipes) > 0 {
 		fmt.Println()
-		fmt.Printf("%s %s\n", sBold.Render("Can add:"), ft.FeatureNoun()+"s")
+		fmt.Println(sBold.Render("Can add"))
+		for _, r := range recipes {
+			fmt.Printf("  %-16s %s\n", r.Name, r.Label)
+			if r.Description != "" {
+				fmt.Printf("  %-16s %s\n", "", sMuted.Render(r.Description))
+			}
+		}
 	}
 	return nil
 }

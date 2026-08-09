@@ -27,6 +27,11 @@ type Ctx struct {
 	// Gen is the kmp-scaffold version that generated this.
 	Gen string
 
+	// ProjectVars is what the project was generated with, set while a recipe
+	// runs. It is how a recipe asks whether the project has the thing it needs:
+	// `{{ if has .ProjectVars.extras "auth" }}`.
+	ProjectVars map[string]any
+
 	// Item, Index, First and Last are bound inside a for_each.
 	Item  any
 	Index int
@@ -36,7 +41,7 @@ type Ctx struct {
 	// RelPath is the path under a glob's base, with any .tmpl suffix removed.
 	RelPath string
 
-	// Feature is set while a recipe runs. Recipes are not implemented yet.
+	// Feature is the thing being added, set while a recipe runs.
 	Feature *FeatureCtx
 }
 
@@ -49,6 +54,10 @@ type Versions map[string]string
 
 // Of returns the version for a key, or "" if it was not resolved.
 func (v Versions) Of(key string) string { return v[key] }
+
+// renderSafePath is render.SafePath, re-exported here so the recipe code has
+// one place to reach for it.
+func renderSafePath(p string) (string, error) { return render.SafePath(p) }
 
 // FeatureCtx describes the thing a recipe is adding.
 type FeatureCtx struct {

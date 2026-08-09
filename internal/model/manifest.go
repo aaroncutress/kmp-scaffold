@@ -71,12 +71,16 @@ type Manifest struct {
 	Migrated bool `json:"-"`
 }
 
-// Feature records something a template's recipe added to the project. Name is
-// universal - it is what stops the same feature being added twice - and Vars
-// is whatever the template needs to remember about it.
+// Feature records something a template's recipe added to the project. Name and
+// Recipe are universal - together they are what stops the same thing being
+// added twice - and Vars is whatever the template needs to remember about it.
 type Feature struct {
-	Name string          `json:"name"`
-	Vars json.RawMessage `json:"vars,omitempty"`
+	Name string `json:"name"`
+	// Recipe is which of the template's recipes created this. It is absent in
+	// manifests written before templates had more than one, where it means
+	// "whatever recipe is asking".
+	Recipe string          `json:"recipe,omitempty"`
+	Vars   json.RawMessage `json:"vars,omitempty"`
 }
 
 // NewManifest builds a manifest for a freshly generated project.
@@ -134,8 +138,8 @@ func (f Feature) DecodeVars(dst any) error {
 }
 
 // NewFeature builds a feature record with its template-defined state encoded.
-func NewFeature(name string, vars any) (Feature, error) {
-	f := Feature{Name: name}
+func NewFeature(recipe, name string, vars any) (Feature, error) {
+	f := Feature{Name: name, Recipe: recipe}
 	if vars == nil {
 		return f, nil
 	}
@@ -147,7 +151,8 @@ func NewFeature(name string, vars any) (Feature, error) {
 	return f, nil
 }
 
-// FindFeature returns the recorded feature with the given name, if any.
+// FindFeature returns the recorded feature with the given name, whichever
+// recipe created it.
 func (m Manifest) FindFeature(name string) *Feature {
 	for i := range m.Features {
 		if m.Features[i].Name == name {
@@ -157,10 +162,27 @@ func (m Manifest) FindFeature(name string) *Feature {
 	return nil
 }
 
-// PutFeature adds a feature record, replacing any earlier one with the same name.
+// FindFeatureOf returns the record a given recipe made under a name.
+//
+// Two recipes may each have an "auth"; the pair is what has to be unique. A
+// record with no recipe matches any of them, because that is what a manifest
+// written before a template had more than one recipe means.
+func (m Manifest) FindFeatureOf(recipe, name string) *Feature {
+	for i := range m.Features {
+		f := &m.Features[i]
+		if f.Name == name && (f.Recipe == "" || f.Recipe == recipe) {
+			return f
+		}
+	}
+	return nil
+}
+
+// PutFeature adds a feature record, replacing any earlier one the same recipe
+// made under the same name.
 func (m *Manifest) PutFeature(f Feature) {
 	for i := range m.Features {
-		if m.Features[i].Name == f.Name {
+		if existing := &m.Features[i]; existing.Name == f.Name &&
+			(existing.Recipe == "" || existing.Recipe == f.Recipe) {
 			m.Features[i] = f
 			return
 		}
@@ -304,7 +326,7 @@ func migrateManifest(data []byte, schema int) (*Manifest, error) {
 	}
 
 	for _, f := range old.Features {
-		rec, err := NewFeature(f.Name, map[string]any{
+		rec, err := NewFeature("feature", f.Name, map[string]any{
 			"android":      f.Android,
 			"shared":       f.Shared,
 			"ios":          f.IOS,

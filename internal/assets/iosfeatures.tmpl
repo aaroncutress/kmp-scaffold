@@ -75,19 +75,12 @@ let package = Package(
         // kmp-scaffold:ios-targets
 {{- if .Spec.Tests }}
 
-        // Tests for the package, run by `swift test` or Xcode's Test navigator.
-        // One target covering every feature, so adding a feature does not add a
-        // target here - the same reason the app links one umbrella product.
-        .testTarget(
-            name: "FeatureTests",
-            dependencies: [
-                "CoreNavigation",
-{{- range .Tabs }}
-                "{{ .Pascal }}",
-{{- end }}
-                // kmp-scaffold:ios-test-deps
-            ]
-        ),
+        // Tests for the package, run from Xcode's Test navigator.
+        //
+        // It depends on CoreNavigation alone, which is where the routes live -
+        // so adding a feature never changes this target. To test a feature's
+        // own views, add it to this list yourself.
+        .testTarget(name: "FeatureTests", dependencies: ["CoreNavigation"]),
 {{- end }}
     ],
 {{- if eq .Spec.SwiftMode "5" }}

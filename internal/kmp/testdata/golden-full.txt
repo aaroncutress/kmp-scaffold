@@ -57,7 +57,7 @@ gradle.properties  b315554ce039fd7a
 gradle/libs.versions.toml  aac945a4f981ad1f
 gradle/wrapper/gradle-wrapper.properties  1d126b2f29d1a878
 iosApp/Configuration/Config.xcconfig  bb4238f31b3fda55
-iosApp/Packages/Features/Package.swift  407c8199c2944d93
+iosApp/Packages/Features/Package.swift  9bcdd52022007d6a
 iosApp/Packages/Features/Sources/CoreNavigation/HomeRoute.swift  1d05e62ce92d8f92
 iosApp/Packages/Features/Sources/CoreNavigation/Resolve.swift  b1b646dcffd992f9
 iosApp/Packages/Features/Sources/CoreNavigation/SettingsRoute.swift  ec0fe37284f8add6

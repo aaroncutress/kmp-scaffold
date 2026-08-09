@@ -53,6 +53,13 @@ already in place:
   Maven Central, Google Maven and the Gradle release feed at the moment you
   generate, with compatibility rules applied (see
   [docs/kmp-mobile/libraries.md](docs/kmp-mobile/libraries.md)).
+- **Tests and CI, if you want them** — test source sets with one worked example
+  per platform, and a GitHub Actions workflow building both sides on every pull
+  request. `--no-tests` and `--no-ci` leave out the files *and* the dependencies
+  that would have gone unused.
+- **A git repository, `.editorconfig` and `.gitattributes`** — so the first
+  thing you change shows up as a diff, and so a checkout on Windows and one on
+  macOS produce the same working tree.
 
 ## Install
 

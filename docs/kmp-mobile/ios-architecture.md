@@ -28,17 +28,19 @@ iosApp/
 │       └── AppCoordinator.swift    TabView + one NavigationPath per tab
 └── Packages/Features/
     ├── Package.swift               every target and product
-    └── Sources/
-        ├── CoreNavigation/         route payloads + the Koin bridge
-        │   ├── HomeRoute.swift
-        │   ├── SettingsRoute.swift
-        │   └── Resolve.swift
-        ├── Home/
-        │   ├── HomeScreen.swift
-        │   └── HomeDestination.swift
-        └── Settings/
-            ├── SettingsScreen.swift
-            └── SettingsDestination.swift
+    ├── Sources/
+    │   ├── CoreNavigation/         route payloads + the Koin bridge
+    │   │   ├── HomeRoute.swift
+    │   │   ├── SettingsRoute.swift
+    │   │   └── Resolve.swift
+    │   ├── Home/
+    │   │   ├── HomeScreen.swift
+    │   │   └── HomeDestination.swift
+    │   └── Settings/
+    │       ├── SettingsScreen.swift
+    │       └── SettingsDestination.swift
+    └── Tests/FeatureTests/         omitted with --no-tests
+        └── RouteTests.swift
 ```
 
 ## The dependency rule
@@ -273,3 +275,42 @@ written had you added the package through its own UI — an
 `XCSwiftPackageProductDependency` per linked product, and the build files that
 carry them into the frameworks phase. There is nothing to do in Xcode before the
 project builds.
+
+## The Swift toolchain
+
+Three values in `Package.swift` and `project.pbxproj` move together, and two of
+them you choose in the wizard.
+
+**`swift-tools-version: 6.2`** is the manifest's own version, and it decides
+which `PackageDescription` API the manifest may use — including which platform
+cases exist. This is not cosmetic: `.v18` was introduced in tools-version 6.0
+and `.v26` in 6.2, so a manifest naming a platform its declared tools version
+does not know simply fails to parse. That is a real failure this template
+shipped with, and the reason the tools version is now ahead of what the
+generated code strictly needs.
+
+**The deployment target** — iOS 18 by default — is written into
+`IPHONEOS_DEPLOYMENT_TARGET` in both build configurations and into the
+`platforms:` line as a major-version case. Change it with
+`--ios-deployment-target`, or in the wizard.
+
+**The language mode** — Swift 5 by default — is written into
+`swiftLanguageModes:` in the package and `SWIFT_VERSION` in the Xcode project.
+The two cannot disagree; a test asserts they do not.
+
+### On choosing Swift 6
+
+Swift 6 language mode turns concurrency checking from warnings into errors. The
+generated Swift is written against mode 5, and the reason the default is not 6
+is not caution about the generated code — it is the boundary with Kotlin.
+
+Kotlin/Native exports its classes to Objective-C without `Sendable`
+conformances, and KMP-ObservableViewModel is still published at
+`swift-tools-version: 5.3`, so nothing on that side is audited for concurrency.
+Under mode 6 every shared type crossing an actor boundary is a compile error
+until you annotate it — usually with `@unchecked Sendable` on a wrapper, having
+satisfied yourself the type really is safe to share.
+
+That is a decision about your code, not a version to keep current, which is why
+it is asked rather than assumed. `--swift-mode 6` picks it up front; changing
+`swiftLanguageModes` and `SWIFT_VERSION` later does the same thing.

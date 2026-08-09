@@ -17,8 +17,14 @@ my-app/
 ├── feature/<name>/impl/         a feature's screens
 ├── androidApp/                  the composition root
 ├── iosApp/                      the SwiftUI app, and its Features package
+├── .github/workflows/ci.yml     build on every pull request, unless you said no
+├── .editorconfig                formatting, for whatever editor opens this
+├── .gitattributes               line endings, so Windows and macOS agree
 └── .run/                        JetBrains run configurations, committed
 ```
+
+The last four are written whatever else you chose, except the workflow —
+`--no-ci` leaves it out. See [tests and CI](#tests-and-ci).
 
 The iOS side has its own layout, mirroring the module split above — see
 [iOS architecture](ios-architecture.md).
@@ -60,7 +66,7 @@ sharedLogic/src/
 │   └── feature/<name>/{domain,data,presentation,di}/
 ├── androidMain/kotlin/<pkg>/    actual implementations (ConnectivityManager, OkHttp, SharedPreferences)
 ├── iosMain/kotlin/<pkg>/        actual implementations (NWPathMonitor, Darwin, NSUserDefaults)
-└── commonTest/kotlin/<pkg>/
+└── commonTest/kotlin/<pkg>/     runs on every target; omitted with --no-tests
 ```
 
 Inside a feature package the layers are conventional and worth keeping:
@@ -242,6 +248,54 @@ symbol visible to Swift. See
 They are plain files. Add your own — a `Run all tests` Gradle configuration, a
 flavour-specific Android run — and they are committed alongside the generated
 ones; regenerating never touches a configuration it did not write.
+
+## Tests and CI
+
+Both are answered in the wizard, and both are all-or-nothing: turning tests off
+removes the source sets *and* the dependencies that would have gone unused, so
+there is no half-configured state to clean up later.
+
+With tests on, three source sets exist and one example lives in each:
+
+| Where | What runs it |
+| --- | --- |
+| `sharedLogic/src/commonTest/` | `./gradlew :sharedLogic:allTests`, on every target the module builds for |
+| `androidApp/src/test/` | `./gradlew :androidApp:test`, on the JVM, no device needed |
+| `iosApp/Packages/Features/Tests/` | Xcode's Test navigator |
+
+Logic worth testing usually belongs in `commonTest`, because that is the source
+set both platforms run. The other two are for what is genuinely platform
+specific — and for proving the test wiring works at all.
+
+The Swift tests are not run by `swift test`. That builds for the host, and the
+Features package is iOS-only and links an iOS XCFramework, so it has to be Xcode
+or a simulator. The generated CI workflow says so where it would otherwise look
+like an oversight.
+
+With CI on, `.github/workflows/ci.yml` builds on every pull request and on the
+default branch: a Gradle job on Ubuntu, and — when the project has an iOS side —
+a job on macOS that assembles the XCFramework and builds the app for a
+simulator. It builds with `xcodebuild -target` rather than `-scheme`, because
+Xcode creates schemes on first open and they are not committed.
+
+## Editor and git configuration
+
+Three small files, written whatever else you chose:
+
+- **`.editorconfig`** — indentation, charset and final newlines, matching the
+  `kotlin.code.style=official` that `gradle.properties` sets. Read by IntelliJ,
+  Android Studio, Xcode and VS Code without a plugin.
+- **`.gitattributes`** — normalises line endings. `gradlew` is forced to LF,
+  because CRLF in it produces `bad interpreter` on macOS and Linux, which is a
+  confusing way to discover your editor rewrote the file.
+- **`.gitignore`** — build output, `local.properties`, `secrets.properties`,
+  SwiftPM's `.build/` and the generated `Frameworks/`. It deliberately does not
+  ignore the Gradle wrapper or `.run/`: both are committed.
+
+`.gitattributes` deliberately leaves `project.pbxproj` as ordinary text.
+`merge=union` is often suggested for it and does resolve conflicts
+automatically — by keeping both sides, which in an object graph produces a file
+Xcode cannot open.
 
 ## Anchors
 

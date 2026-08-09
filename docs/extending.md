@@ -33,13 +33,21 @@ func (Template) Meta() scaffold.Meta {
         Description: "A Ktor server with layered routes, Koin DI and a Dockerfile.",
         Source:      scaffold.Source{Kind: scaffold.SourceBuiltin},
         AsksPackage: true,
-        Sentinels:   []string{"build.gradle.kts"},
+        // Opt into the universal "generate tests?" and "generate a CI
+        // workflow?" questions. Set these only if something you generate is
+        // gated on the answer.
+        SupportsTests: true,
+        SupportsCI:    true,
+        Sentinels:     []string{"build.gradle.kts"},
     }
 }
 ```
 
-The tool asks the universal questions itself — name, directory, and (when
-`AsksPackage` is set) the package — and the template supplies the rest as data:
+The tool asks the universal questions itself — name, directory, git, the two
+above, and (when `AsksPackage` is set) the package — and the template supplies
+the rest as data. The answers to the universal ones arrive on `scaffold.Answers`
+(`a.Tests`, `a.CI`, `a.InitGit`) rather than in the values map, because they are
+not questions this template declared:
 
 ```go
 func (Template) Questions() []scaffold.Question {

@@ -75,6 +75,22 @@ kmp-scaffold add feature billing --targets ios
 
 If a feature reuses another feature's ViewModel, drop `shared`.
 
+### It does not write tests
+
+Test files are yours. `add feature` creates the source sets' worth of production
+code and leaves the tests to you, deliberately — a generated test asserting that
+generated code does what it was generated to do proves nothing, and deleting it
+is one more chore.
+
+Where to put them, if the project was generated with tests:
+
+- Logic in the shared ViewModel or repository → `sharedLogic/src/commonTest/`,
+  which both platforms run. `SettingsViewModelTest` is the worked example.
+- Android-only behaviour → `androidApp/src/test/`.
+- Swift routes and views → `iosApp/Packages/Features/Tests/FeatureTests/`. That
+  target depends on `CoreNavigation` alone, so add the feature target to its
+  dependency list in `Package.swift` if you want to reach into it.
+
 ## What gets wired
 
 This is the part that is tedious to do by hand and easy to half-finish:
@@ -96,6 +112,9 @@ screen, rotate the device, and you are back at the start destination. See
 [Project layout](project-layout.md#corenavigation) for why.
 
 Insertions are idempotent: nothing is duplicated if a line is already there.
+
+The Swift test target is deliberately absent from that list. It depends on
+`CoreNavigation` and nothing else, so adding a feature never changes it.
 
 ## How the screen appears
 

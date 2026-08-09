@@ -156,6 +156,48 @@ template's output has its own problems; ask its author.
 
 ### Building it
 
+#### `./gradlew allTests` says there is nothing to run
+
+The project was generated with `--no-tests`, so there are no test source sets
+and no test dependencies. Adding a test file back is not enough on its own —
+`commonTest` needs `kotlin-test` and the rest, which are not in
+`libs.versions.toml` either.
+
+The quickest way back is to generate a throwaway project with tests on and copy
+the `commonTest.dependencies` block, the four Testing entries in the catalog and
+one example test across. Or regenerate into a new directory and diff.
+
+#### `Cannot find type 'X' in scope` in a Swift test
+
+`FeatureTests` depends on `CoreNavigation` and nothing else, which is where the
+routes live. To reach into a feature's own target, add it to that target's
+dependency list in `iosApp/Packages/Features/Package.swift`.
+
+`swift test` does not work here either, whatever the error says: the Features
+package is iOS-only and links an iOS XCFramework, so it can only be built for a
+simulator. Run the tests from Xcode's Test navigator.
+
+#### Swift 6 concurrency errors after generating
+
+You picked Swift 6 language mode. Kotlin/Native exports its classes to
+Objective-C without `Sendable` conformances, and KMP-ObservableViewModel is
+still published at `swift-tools-version: 5.3`, so nothing on that boundary is
+audited for concurrency — every shared type crossing an actor boundary is an
+error until you annotate it.
+
+Either annotate them, usually with `@unchecked Sendable` on a wrapper once you
+have satisfied yourself the type is safe to share, or go back to mode 5 by
+setting `swiftLanguageModes: [.v5]` in `Package.swift` and `SWIFT_VERSION = 5.0`
+in both build configurations of `project.pbxproj`. Both have to change together.
+
+#### `no such module 'PackageDescription'` or an unknown platform case
+
+`Package.swift` names a platform its declared `swift-tools-version` does not
+know. `.v18` needs 6.0 and `.v26` needs 6.2; the generated manifest declares
+6.2, so this means the two were edited apart. Raise the tools version, or lower
+the deployment target on the `platforms:` line and in
+`IPHONEOS_DEPLOYMENT_TARGET`.
+
 #### `Unresolved reference: libs`
 
 Gradle has not synced. In Android Studio, **File → Sync Project with Gradle
@@ -264,6 +306,20 @@ Kotlin top-level functions are exported as `<FileName>Kt`. `currentPlatform()` i
 
 Names starting with `init` are renamed by the Objective-C exporter, which is why
 the Koin entry point is `setup()` rather than `initKoin()`.
+
+#### The CI workflow fails on the first run
+
+Two likely causes, both about the build rather than the workflow.
+
+If it fails at configuration time complaining about `secrets.properties`, the
+workflow copies the template for you — but the template's values are
+placeholders. Anything the build genuinely needs should be written from a
+repository secret in that step instead.
+
+If the macOS job fails at `xcodebuild`, run the same command locally: the
+workflow builds with `-target iosApp` rather than a scheme, because schemes are
+created by Xcode on first open and are not committed. If you have since
+committed a shared scheme, `-scheme` is the better flag.
 
 #### `Compose Compiler` version mismatch
 

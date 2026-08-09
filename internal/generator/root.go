@@ -49,10 +49,46 @@ func (rootGenerator) Generate(env *Env) error {
 		)
 	}
 
+	// .run/ is the shared JetBrains run-configuration directory, so these land
+	// in the IDE's run dropdown the first time the project is opened. Unlike
+	// .idea/ it is meant to be committed, and the generated .gitignore leaves
+	// it alone.
+	for _, r := range runConfigurations(env.Ctx) {
+		files = append(files, struct{ tpl, path string }{r, path.Join(".run", path.Base(r))})
+	}
+
 	for _, f := range files {
 		if err := env.Render(f.tpl, f.path); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// runConfigurations names the template blocks for the .run configurations this
+// project can use. Each block's base name is also its file name, so a new
+// configuration is one entry here plus one {{define}} in run.tmpl.
+func runConfigurations(c Ctx) []string {
+	spec := c.Spec
+	var tpls []string
+
+	if spec.Android {
+		tpls = append(tpls, "run/androidApp.run.xml")
+	}
+	if spec.HasPack("secrets") {
+		tpls = append(tpls, "run/Generate Build Konfig.run.xml")
+	}
+	if spec.IOS {
+		if spec.IOSLayout != "" && spec.IOSLayout != "none" {
+			tpls = append(tpls, "run/iosApp.run.xml")
+		}
+		tpls = append(tpls, "run/Link iOS Framework (Debug).run.xml")
+		// The modular layout consumes an XCFramework through SPM, so
+		// assembling it - not linking a single framework - is the task you
+		// reach for after editing sharedLogic.
+		if c.UsesIOSFeatures() {
+			tpls = append(tpls, "run/Build iOS XCFramework (Debug).run.xml")
+		}
+	}
+	return tpls
 }

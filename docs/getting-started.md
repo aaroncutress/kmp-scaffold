@@ -192,6 +192,10 @@ phase keeps it current on every build.
 On the single-entry-point layout there is no bootstrap step: just open
 `iosApp/iosApp.xcodeproj` and run.
 
+Opening the project in Android Studio or IntelliJ, the run dropdown is already
+populated — the app targets plus the Gradle tasks you reach for most, generated
+into `.run/`. See [project layout](project-layout.md#run).
+
 ## Skipping the wizard
 
 Every answer has a flag, so the same project can be generated from a script:

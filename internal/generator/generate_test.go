@@ -82,6 +82,11 @@ func TestGenerateFullProject(t *testing.T) {
 		"iosApp/iosApp.xcodeproj/project.pbxproj",
 		"iosApp/iosApp/App/iOSApp.swift",
 		"iosApp/Packages/Features/Package.swift",
+		".run/androidApp.run.xml",
+		".run/iosApp.run.xml",
+		".run/Generate Build Konfig.run.xml",
+		".run/Link iOS Framework (Debug).run.xml",
+		".run/Build iOS XCFramework (Debug).run.xml",
 		model.ManifestFile,
 	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
@@ -341,6 +346,83 @@ func TestExistingFilesAreNotClobbered(t *testing.T) {
 	}
 	if len(writer.Conflicts()) == 0 {
 		t.Error("the conflict was not reported")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// .run configurations
+// ---------------------------------------------------------------------------
+
+func TestRunConfigurationsMatchTheProject(t *testing.T) {
+	root := generate(t, testSpec("tunesic"))
+
+	// The Android configuration names the module as the IDE sees it:
+	// <rootProject.name>.<module>.
+	android := mustRead(t, root, ".run/androidApp.run.xml")
+	if !strings.Contains(android, `<module name="Tunesic.androidApp" />`) {
+		t.Errorf("the Android run configuration does not name Tunesic.androidApp:\n%s", android)
+	}
+
+	konfig := mustRead(t, root, ".run/Generate Build Konfig.run.xml")
+	if !strings.Contains(konfig, ":sharedLogic:generateBuildKonfig") {
+		t.Error("the BuildKonfig configuration does not run generateBuildKonfig")
+	}
+
+	xcf := mustRead(t, root, ".run/Build iOS XCFramework (Debug).run.xml")
+	if !strings.Contains(xcf, ":sharedLogic:assembleSharedLogicDebugXCFramework") {
+		t.Errorf("the XCFramework configuration does not assemble the framework:\n%s", xcf)
+	}
+}
+
+func TestRunConfigurationsFollowTheSpec(t *testing.T) {
+	// No secrets pack, no BuildKonfig configuration.
+	spec := testSpec("tunesic")
+	spec.Packs = nil
+	catalog.Normalise(&spec)
+	root := generate(t, spec)
+	if _, err := os.Stat(filepath.Join(root, ".run", "Generate Build Konfig.run.xml")); err == nil {
+		t.Error("the BuildKonfig configuration was written without the secrets pack")
+	}
+
+	// The single-file iOS layout has no XCFramework to assemble, but still
+	// links the framework Xcode embeds.
+	simple := testSpec("simple")
+	simple.IOSLayout = "swiftui-simple"
+	catalog.Normalise(&simple)
+	root = generate(t, simple)
+	if _, err := os.Stat(filepath.Join(root, ".run", "Build iOS XCFramework (Debug).run.xml")); err == nil {
+		t.Error("the XCFramework configuration should be specific to the modular iOS layout")
+	}
+	for _, rel := range []string{".run/iosApp.run.xml", ".run/Link iOS Framework (Debug).run.xml"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("expected %s to exist: %v", rel, err)
+		}
+	}
+
+	// An Android-only project gets no iOS configurations at all.
+	androidOnly := testSpec("androidonly")
+	androidOnly.IOS = false
+	catalog.Normalise(&androidOnly)
+	root = generate(t, androidOnly)
+	for _, rel := range []string{
+		".run/iosApp.run.xml",
+		".run/Link iOS Framework (Debug).run.xml",
+		".run/Build iOS XCFramework (Debug).run.xml",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s was written for an Android-only project", rel)
+		}
+	}
+}
+
+// .run is a shared JetBrains directory: unlike .idea it belongs in version
+// control, so the generated .gitignore must leave it alone.
+func TestRunDirectoryIsNotGitignored(t *testing.T) {
+	root := generate(t, testSpec("tunesic"))
+	for _, line := range strings.Split(mustRead(t, root, ".gitignore"), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), ".run") {
+			t.Errorf(".gitignore excludes the run configurations: %q", line)
+		}
 	}
 }
 

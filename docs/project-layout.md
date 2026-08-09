@@ -14,7 +14,8 @@ my-app/
 ├── feature/<name>/api/          a feature's routes
 ├── feature/<name>/impl/         a feature's screens
 ├── androidApp/                  the composition root
-└── iosApp/                      the SwiftUI app, and its Features package
+├── iosApp/                      the SwiftUI app, and its Features package
+└── .run/                        JetBrains run configurations, committed
 ```
 
 The iOS side has its own layout, mirroring the module split above — see
@@ -212,6 +213,33 @@ Four convention plugins, so module build scripts stay four lines long:
 buildscript classpath, which is what lets the version-less plugin aliases in
 `libs.versions.toml` resolve. Those pins are generated from the same resolved
 versions as the catalog, so they cannot drift.
+
+## .run
+
+The run configurations, ready in the IDE's run dropdown the first time the
+project is opened. Unlike `.idea/`, `.run/` is meant to be committed — it is
+shared project configuration, not per-developer state, which is why the
+generated `.gitignore` leaves it alone.
+
+| Configuration | Runs | Generated when |
+| --- | --- | --- |
+| `androidApp` | the Android app on a device or emulator | Android is included |
+| `iosApp` | the SwiftUI app on a simulator | an iOS layout is chosen |
+| `Generate Build Konfig` | `:sharedLogic:generateBuildKonfig` | the secrets pack is on |
+| `Link iOS Framework (Debug)` | `:sharedLogic:linkDebugFrameworkIosSimulatorArm64` | iOS is included |
+| `Build iOS XCFramework (Debug)` | `:sharedLogic:assembleSharedLogicDebugXCFramework` | the modular iOS layout |
+
+The last two are the ones worth knowing. **Link iOS Framework** is the fastest
+way to see the real Kotlin error when an iOS build fails, because Xcode
+truncates the output of the Gradle build phase. **Build iOS XCFramework** is the
+modular layout's equivalent: Swift Package Manager consumes the XCFramework, so
+assembling it — not linking a single framework — is what makes a new Kotlin
+symbol visible to Swift. See
+[iOS architecture](ios-architecture.md#the-xcframework).
+
+They are plain files. Add your own — a `Run all tests` Gradle configuration, a
+flavour-specific Android run — and they are committed alongside the generated
+ones; regenerating never touches a configuration it did not write.
 
 ## Anchors
 

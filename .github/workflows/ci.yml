@@ -1,13 +1,15 @@
 name: CI
 
+# Pull requests are the gate, and main is what gets tagged. Pushing a work in
+# progress to a branch runs nothing - use `task check` locally, or the Run
+# workflow button when you want CI on a branch without opening a pull request.
 on:
-  push:
-    branches: ["**"]
-    tags-ignore: ["**"]
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
-# A new push to a branch makes the run in flight for it pointless.
+# A new push to a pull request makes the run in flight for it pointless.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -15,14 +17,9 @@ concurrency:
 permissions:
   contents: read
 
-# A pull request from a branch in this repository has already been built by the
-# push that created it, so every job below skips that duplicate. A fork pull
-# request has had no push here, so it still runs.
-
 jobs:
   check:
     name: Check on ${{ matrix.os }}
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -52,7 +49,6 @@ jobs:
   # rather than being left out entirely.
   windows:
     name: Build on windows
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -65,10 +61,12 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
 
-  # A release cross-compiles from one machine, so that has to keep working.
+  # A release cross-compiles from one machine, so that has to keep working - but
+  # only once per merge, not on every pull request. Releasing is still never the
+  # first time it is tried, because a release is cut from main.
   dist:
     name: Cross-compile
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

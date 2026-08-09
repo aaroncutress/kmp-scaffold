@@ -155,6 +155,10 @@ Nothing in there needs Task, though: every task is a `go` command you can run
 by hand. CI installs Task and runs `task check`, so a green build means those
 exact commands passed.
 
+CI runs on pull requests and on pushes to `main` — a work-in-progress branch
+runs nothing, so `task check` locally is the fast loop. Tagging `v*` builds,
+verifies and publishes a release.
+
 The generator has no hidden state: `go test ./internal/kmp` builds complete
 projects offline into temporary directories and asserts on the output, so a
 change that breaks the wiring fails the tests. It also fingerprints three whole

@@ -1,0 +1,138 @@
+# A worked example of a file-based template.
+#
+# Everything here is declarative: no Go, no compiler. Generate from it with
+#
+#   kmp-scaffold new my-api --template ./examples/templates/ktor-service
+#
+# and see docs/templates.md for the full reference.
+
+schema = 1
+
+[template]
+id           = "ktor-service"
+name         = "Ktor service"
+description  = "A Ktor server with layered routes, Koin DI and an optional Dockerfile."
+version      = "1.0.0"
+uses_package = true
+sentinels    = ["build.gradle.kts", "settings.gradle.kts"]
+
+# ---------------------------------------------------------------------------
+# Questions, asked in order after the universal name / directory / package.
+# ---------------------------------------------------------------------------
+
+[[questions]]
+id      = "port"
+kind    = "text"
+prompt  = "Which port should the server listen on?"
+hint    = "Written into application.conf, and overridden at runtime by $PORT."
+default = "8080"
+pattern = '^[0-9]{2,5}$'
+invalid = "enter a port number, e.g. 8080"
+
+[[questions]]
+id      = "routes"
+kind    = "list"
+prompt  = "Which top-level routes?"
+hint    = "Comma separated, in order. Each becomes a routing file and a service."
+default = ["health", "users"]
+min     = 1
+max     = 8
+pattern = '^[a-z][a-z0-9-]*$'
+invalid = "lowercase kebab-case, e.g. user-profile"
+
+[[questions]]
+id          = "extras"
+kind        = "multiselect"
+prompt      = "Which extras?"
+allow_empty = true
+default     = ["logging"]
+
+  [[questions.options]]
+  id    = "logging"
+  label = "Request logging"
+  desc  = "The CallLogging plugin, at INFO."
+
+  [[questions.options]]
+  id    = "cors"
+  label = "Permissive CORS"
+  desc  = "Any host, for a browser client in development."
+
+[[questions]]
+id      = "docker"
+kind    = "confirm"
+prompt  = "Generate a Dockerfile?"
+default = true
+
+# ---------------------------------------------------------------------------
+# Versions. Everything here is resolved at generation time, so the generated
+# build file is never pinned to whatever was current when this was written.
+# ---------------------------------------------------------------------------
+
+[versions]
+keys = ["kotlin", "ktor", "koin", "kotlinx-serialization", "kotlinx-coroutines"]
+
+  [[versions.probe]]
+  key      = "logback"
+  group    = "ch.qos.logback"
+  artifact = "logback-classic"
+  repo     = "central"
+  baseline = "1.5.16"
+
+# ---------------------------------------------------------------------------
+# Files, rendered in order. Every `to` is itself a Go template.
+# ---------------------------------------------------------------------------
+
+# A glob takes the whole subtree; .RelPath is the path under files/root, with
+# the .tmpl suffix already removed.
+[[files]]
+from = "files/root/**"
+to   = "{{ .RelPath }}"
+
+[[files]]
+from = "files/app/Application.kt.tmpl"
+to   = "src/main/kotlin/{{ packagePath .Project.Package }}/Application.kt"
+
+[[files]]
+from = "files/app/Modules.kt.tmpl"
+to   = "src/main/kotlin/{{ packagePath .Project.Package }}/Modules.kt"
+
+# for_each renders the file once per item, with .Item bound to it.
+[[files]]
+from     = "files/routes/Routes.kt.tmpl"
+to       = "src/main/kotlin/{{ packagePath .Project.Package }}/routes/{{ pascal .Item }}Routes.kt"
+for_each = ".Vars.routes"
+
+[[files]]
+from     = "files/routes/Service.kt.tmpl"
+to       = "src/main/kotlin/{{ packagePath .Project.Package }}/service/{{ pascal .Item }}Service.kt"
+for_each = ".Vars.routes"
+
+[[files]]
+from = "files/Dockerfile.tmpl"
+to   = "Dockerfile"
+when = "{{ .Vars.docker }}"
+
+# ---------------------------------------------------------------------------
+# The review screen and what to print afterwards.
+# ---------------------------------------------------------------------------
+
+[[summary]]
+title = "Service"
+  [[summary.rows]]
+  label = "Port"
+  value = "{{ .Vars.port }}"
+  [[summary.rows]]
+  label = "Routes"
+  value = "{{ join \", \" .Vars.routes }}"
+
+[[summary]]
+title = "Extras"
+items = "{{ range .Vars.extras }}{{ . }}\n{{ end }}{{ if .Vars.docker }}Dockerfile{{ end }}"
+
+[[next_steps]]
+command = "./gradlew run"
+note    = "listens on {{ .Vars.port }}"
+
+[[next_steps]]
+command = "docker build -t {{ kebab .Project.Name }} ."
+when    = "{{ .Vars.docker }}"

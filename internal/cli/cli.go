@@ -8,6 +8,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	// filetmpl installs the loader for templates that are directories rather
+	// than Go code. It is imported for that effect alone: internal/scaffold
+	// cannot depend on the packages that implement templates, so the one place
+	// that knows about both wires them together.
+	_ "github.com/aaroncutress/kmp-scaffold/internal/scaffold/filetmpl"
 )
 
 // Version is the generator version, stamped into generated files. Overridden at

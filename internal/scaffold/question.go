@@ -105,6 +105,10 @@ type Answers struct {
 	Project model.Project
 	Values  map[string]any
 
+	// Offline suppresses every network lookup. It is a property of this run
+	// rather than an answer, so it is never persisted.
+	Offline bool
+
 	state any
 }
 

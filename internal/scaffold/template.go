@@ -151,6 +151,14 @@ type FeatureTemplate interface {
 	AddFeature(context.Context, FeatureRequest) (*Report, error)
 }
 
+// Describable is implemented by templates that can say what they write without
+// generating it, so `kmp-scaffold templates <name>` can show it.
+type Describable interface {
+	// Outputs lists the output paths, as the template declares them - still
+	// containing whatever placeholders depend on the answers.
+	Outputs() []string
+}
+
 // GenRequest is everything Generate needs.
 type GenRequest struct {
 	Answers *Answers

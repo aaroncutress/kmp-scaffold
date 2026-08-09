@@ -63,7 +63,7 @@ func (s *ResolveStep) Help() string {
 
 // Skip drops the step entirely for a template that resolves nothing.
 func (s *ResolveStep) Skip(a *scaffold.Answers) bool {
-	return len(s.Template.Versions(a).Keys) == 0
+	return s.Template.Versions(a).Empty()
 }
 
 func (s *ResolveStep) Enter(a *scaffold.Answers) tea.Cmd {

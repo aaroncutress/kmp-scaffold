@@ -78,6 +78,16 @@ extend a project it generated, rather than half-generating something.
 in `internal/generator`, the libraries in `internal/catalog` and the answers in
 `model.Spec`, and the package's job is to present all of that as one template.
 
+### Or write it as files instead
+
+A template that does not need any of the Go-only power — options from a
+registry, cross-question dependency rules, a hook into the resolver — can be a
+directory with a `template.toml` and a tree of Go templates, with no compiler
+involved. That is usually the right answer for a second template. See
+[templates](templates.md#writing-a-template); the implementation is
+`internal/scaffold/filetmpl`, and `examples/templates/ktor-service` is the
+worked example, exercised end to end by the tests.
+
 ### The answer bag
 
 Answers are a `scaffold.Answers`: `Project` for the universal ones, `Values` for
@@ -324,6 +334,7 @@ internal/
 ├── render/      template execution, file writing, collision handling
 ├── wire/        anchor-based edits to existing files
 ├── scaffold/    what a template is: Template, Question, Answers, the registry
+│   └── filetmpl/    templates written as a directory rather than as Go
 ├── kmp/         the kmp-mobile template
 ├── generator/   the layout registry and the concrete generators it drives
 ├── assets/      *.tmpl, embedded

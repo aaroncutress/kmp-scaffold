@@ -1,0 +1,40 @@
+plugins {
+    kotlin("jvm") version "{{ .Versions.kotlin }}"
+    kotlin("plugin.serialization") version "{{ .Versions.kotlin }}"
+    application
+}
+
+group = "{{ .Project.Package }}"
+version = "1.0.0"
+
+application {
+    mainClass.set("{{ .Project.Package }}.ApplicationKt")
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation("io.ktor:ktor-server-core:{{ .Versions.ktor }}")
+    implementation("io.ktor:ktor-server-netty:{{ .Versions.ktor }}")
+    implementation("io.ktor:ktor-server-config-yaml:{{ .Versions.ktor }}")
+    implementation("io.ktor:ktor-server-content-negotiation:{{ .Versions.ktor }}")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:{{ .Versions.ktor }}")
+{{- if has .Vars.extras "logging" }}
+    implementation("io.ktor:ktor-server-call-logging:{{ .Versions.ktor }}")
+{{- end }}
+{{- if has .Vars.extras "cors" }}
+    implementation("io.ktor:ktor-server-cors:{{ .Versions.ktor }}")
+{{- end }}
+    implementation("io.insert-koin:koin-ktor:{{ .Versions.koin }}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{{ .Versions.Of "kotlinx-coroutines" }}")
+    implementation("ch.qos.logback:logback-classic:{{ .Versions.logback }}")
+
+    testImplementation(kotlin("test"))
+    testImplementation("io.ktor:ktor-server-test-host:{{ .Versions.ktor }}")
+}
+
+kotlin {
+    jvmToolchain(21)
+}

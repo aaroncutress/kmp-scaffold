@@ -118,6 +118,10 @@ type Request struct {
 	GradleVer string
 }
 
+// Empty reports whether there is nothing to resolve, so the caller can skip
+// the step entirely rather than showing an empty table.
+func (r Request) Empty() bool { return len(r.Keys) == 0 && len(r.Extra) == 0 }
+
 // Signature is a stable fingerprint of everything that affects the outcome. The
 // wizard uses it to decide whether an answer the user changed means the
 // versions have to be resolved again.

@@ -1,0 +1,10 @@
+FROM gradle:jdk21 AS build
+WORKDIR /src
+COPY . .
+RUN gradle installDist --no-daemon
+
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /src/build/install/{{ kebab .Project.Name }} ./
+EXPOSE {{ .Vars.port }}
+ENTRYPOINT ["./bin/{{ kebab .Project.Name }}"]

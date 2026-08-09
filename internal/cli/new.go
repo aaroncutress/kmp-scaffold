@@ -74,7 +74,7 @@ Flags:
 
 	// The template decides what the remaining questions are, so it has to be
 	// chosen before the wizard can be built.
-	choices := scaffold.Builtins()
+	choices := scaffold.All()
 	if *templateRef == "" && !*yes && interactive() && len(choices) > 1 {
 		picked, err := tui.PickTemplate(choices).Run(ctx)
 		if err != nil {
@@ -91,6 +91,7 @@ Flags:
 		return err
 	}
 	answers := template.NewAnswers()
+	answers.Offline = *offline
 
 	// The structural flags belong to the Kotlin Multiplatform template. Another
 	// template answers its questions through the wizard or its own defaults;
@@ -189,7 +190,7 @@ Flags:
 		}
 		template.Normalise(answers)
 
-		if req := template.Versions(answers); len(req.Keys) > 0 {
+		if req := template.Versions(answers); !req.Empty() {
 			fmt.Println(sBold.Render("Resolving versions..."))
 			result = resolve.Run(ctx, req)
 			template.Check(answers, result)
@@ -214,7 +215,7 @@ Flags:
 	// Offline resolution cannot change its mind, so it is only worth repeating
 	// when there was no result at all - which is also the cancelled-early case.
 	req := template.Versions(answers)
-	if len(req.Keys) > 0 && (result == nil || (len(notes) > 0 && !req.Offline)) {
+	if !req.Empty() && (result == nil || (len(notes) > 0 && !req.Offline)) {
 		result = resolve.Run(ctx, req)
 		template.Check(answers, result)
 	}
@@ -256,7 +257,7 @@ Flags:
 	printResolveNotes(result)
 
 	if !*dryRun {
-		printNextSteps(template.NextSteps(answers), root)
+		printNextSteps(template, template.NextSteps(answers), root)
 	}
 	return nil
 }
@@ -288,7 +289,7 @@ func ensureUsableDir(root string, sentinels []string, force bool) error {
 	return nil
 }
 
-func printNextSteps(steps []scaffold.NextStep, root string) {
+func printNextSteps(t scaffold.Template, steps []scaffold.NextStep, root string) {
 	rel, err := filepath.Rel(mustGetwd(), root)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		rel = root
@@ -315,8 +316,21 @@ func printNextSteps(steps []scaffold.NextStep, root string) {
 	}
 
 	fmt.Println()
-	fmt.Println(sMuted.Render("  kmp-scaffold add feature <name>   to add a feature module"))
+	// Only offer `add` for a template that can actually extend what it made.
+	if ft, ok := t.(scaffold.FeatureTemplate); ok {
+		noun := ft.FeatureNoun()
+		fmt.Println(sMuted.Render(fmt.Sprintf(
+			"  kmp-scaffold add %s <name>%s to add a %s", noun,
+			strings.Repeat(" ", max(1, 15-len(noun))), noun)))
+	}
 	fmt.Println(sMuted.Render("  kmp-scaffold versions            to check for newer releases"))
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // defaultSpec is the answer set `versions` uses outside a project: what a fresh

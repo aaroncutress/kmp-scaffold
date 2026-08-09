@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/aaroncutress/kmp-scaffold/internal/model"
 )
 
 var (
@@ -51,11 +53,39 @@ func Builtins() []Template {
 	return out
 }
 
-// Load returns the template named by a ref.
+// ExternalLoader loads templates that are not compiled in: a directory, one in
+// the user's templates folder, or - later - a git remote.
 //
-// Only built-in ids are understood for now; paths, the user templates folder
-// and remote refs are recognised well enough to give a useful error rather than
-// "unknown template".
+// It is installed rather than imported because the implementation needs this
+// package, and this package must not depend on the things that implement
+// templates.
+type ExternalLoader interface {
+	// Load returns the template a ref names, or an error saying why not.
+	Load(ref string) (Template, error)
+	// Discover lists the templates found without being asked for by name.
+	Discover() []Template
+}
+
+var external ExternalLoader
+
+// SetLoader installs the loader for external template refs.
+func SetLoader(l ExternalLoader) {
+	mu.Lock()
+	defer mu.Unlock()
+	external = l
+}
+
+func loader() ExternalLoader {
+	mu.RLock()
+	defer mu.RUnlock()
+	return external
+}
+
+// Load returns the template named by a ref: a built-in id, a directory, or a
+// template in the user's templates folder.
+//
+// Built-ins win, so a template in the user folder cannot shadow one of them by
+// accident.
 func Load(ref string) (Template, error) {
 	if ref == "" {
 		ref = DefaultTemplate
@@ -68,12 +98,68 @@ func Load(ref string) (Template, error) {
 		return make(), nil
 	}
 
-	if looksLikeExternalRef(ref) {
+	if l := loader(); l != nil {
+		t, err := l.Load(ref)
+		if err != nil {
+			return nil, err
+		}
+		if t != nil {
+			return t, nil
+		}
+	} else if looksLikeExternalRef(ref) {
 		return nil, fmt.Errorf(
-			"%s looks like an external template, which this build cannot load yet - "+
+			"%s looks like an external template, which this build cannot load - "+
 				"run `kmp-scaffold templates` for the ones it has", ref)
 	}
-	return nil, fmt.Errorf("unknown template %q - available: %s", ref, strings.Join(IDs(), ", "))
+
+	return nil, fmt.Errorf("unknown template %q - available: %s",
+		ref, strings.Join(available(), ", "))
+}
+
+// LoadFor returns the template a generated project was made from.
+//
+// The recorded source is tried first, so a project made from a directory or a
+// remote loads that same template rather than a different one that happens to
+// share its id. Falling back to the id is what lets a template that has since
+// been installed properly still be found.
+func LoadFor(ref model.TemplateRef) (Template, error) {
+	if ref.ID == "" {
+		return nil, fmt.Errorf("this project does not record which template generated it")
+	}
+	if ref.Source != "" && ref.Source != string(SourceBuiltin) {
+		if t, err := Load(ref.Source); err == nil {
+			return t, nil
+		}
+	}
+	return Load(ref.ID)
+}
+
+// All lists every template that can be generated from without being named by
+// path: the built-ins, plus whatever the loader discovered.
+func All() []Template {
+	out := Builtins()
+	if l := loader(); l != nil {
+		seen := map[string]bool{}
+		for _, t := range out {
+			seen[t.Meta().ID] = true
+		}
+		for _, t := range l.Discover() {
+			if id := t.Meta().ID; !seen[id] {
+				seen[id] = true
+				out = append(out, t)
+			}
+		}
+	}
+	return out
+}
+
+func available() []string {
+	var out []string
+	for _, t := range All() {
+		out = append(out, t.Meta().ID)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // IDs lists the ids Load accepts.

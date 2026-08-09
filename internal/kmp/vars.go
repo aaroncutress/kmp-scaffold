@@ -115,5 +115,8 @@ func Spec(a *scaffold.Answers) *model.Spec {
 	spec.Dir = a.Project.Dir
 	spec.Package = a.Project.Package
 	spec.ApplicationID = a.Project.ApplicationID
+	if a.Offline {
+		spec.Offline = true
+	}
 	return spec
 }

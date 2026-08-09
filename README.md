@@ -106,6 +106,8 @@ its full flag list.
 ## Documentation
 
 - **[Getting started](docs/getting-started.md)** — the wizard, screen by screen.
+- **[Templates](docs/templates.md)** — using a template other than the default,
+  and writing one of your own without touching Go.
 - **[Project layout](docs/project-layout.md)** — what each generated module is
   for, and why the navigation is split the way it is.
 - **[Adding features](docs/adding-features.md)** — feature modules, root tabs,

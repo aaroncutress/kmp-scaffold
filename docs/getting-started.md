@@ -231,6 +231,13 @@ kmp-scaffold new my-app --template kmp-mobile
 When there is more than one, the wizard asks which to use before anything else,
 because the answer decides what the rest of the questions are.
 
+`--template` also takes a directory, so a template you are working on needs no
+installation:
+
+```bash
+kmp-scaffold new my-api --template ./examples/templates/ktor-service
+```
+
 Which template built a project is recorded in its `.kmp-scaffold.json`, so
 `kmp-scaffold add feature` extends it the same way it was made. Writing your own
-template is covered in [extending kmp-scaffold](extending.md#adding-a-template).
+is covered in [templates](templates.md#writing-a-template).

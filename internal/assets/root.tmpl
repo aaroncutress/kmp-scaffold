@@ -367,10 +367,17 @@ A Kotlin Multiplatform project generated with
 | `feature/<name>/impl/` | A feature's screens - depended on only by `androidApp`. |
 {{- end }}
 {{- if .Spec.IOS }}
+{{- if .UsesIOSFeatures }}
+| `iosApp/` | The SwiftUI application: the app target, plus `Packages/Features`, a local Swift package with one target per feature. |
+{{- else }}
 | `iosApp/` | The SwiftUI application. It links the `SharedLogic` framework built by Gradle. |
+{{- end }}
 {{- end }}
 | `buildSrc/` | Convention plugins so module build scripts stay short. |
 | `gradle/libs.versions.toml` | The single source of truth for every dependency version. |
+{{- if .HasRunConfigurations }}
+| `.run/` | JetBrains run configurations, so the IDE's run dropdown is populated on first open. Commit these. |
+{{- end }}
 
 ## Running
 
@@ -379,7 +386,22 @@ A Kotlin Multiplatform project generated with
 ./gradlew :androidApp:installDebug
 ```
 {{ end }}
-{{- if .Spec.IOS }}
+{{- if and .Spec.IOS .UsesIOSFeatures }}
+On iOS, build the shared framework once before the first Xcode build:
+
+```bash
+./iosApp/build-framework.sh
+open iosApp/iosApp.xcodeproj
+```
+
+That order matters. Swift Package Manager resolves `SharedLogic.xcframework` as
+a binary target *before* Xcode runs any build phase, so it has to be on disk
+already - otherwise the first build fails with "Missing binary target". After
+that, the app's `Compile Kotlin Framework` phase re-runs the script on every
+build, so the framework stays current.
+
+See [`iosApp/README.md`](iosApp/README.md) for how the Swift package is laid out.
+{{- else if .Spec.IOS }}
 Open `iosApp/iosApp.xcodeproj` in Xcode and run. The `Compile Kotlin Framework`
 build phase runs `./gradlew :sharedLogic:embedAndSignAppleFrameworkForXcode`
 for you, so the framework is always current.

@@ -1,7 +1,7 @@
 .gitignore  e1460a92f0fd99eb
 .kmp-scaffold.json  e060c7500e5a316f
 .run/androidApp.run.xml  65d0de9fbbeff68d
-README.md  f21b9a892f4846d7
+README.md  3d970243bc4c627a
 androidApp/build.gradle.kts  2c26b93b316978f3
 androidApp/proguard-rules.pro  717e556350432a10
 androidApp/src/main/AndroidManifest.xml  44680370ce057830

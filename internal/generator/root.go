@@ -68,6 +68,11 @@ func (rootGenerator) Generate(env *Env) error {
 // runConfigurations names the template blocks for the .run configurations this
 // project can use. Each block's base name is also its file name, so a new
 // configuration is one entry here plus one {{define}} in run.tmpl.
+// HasRunConfigurations reports whether a .run/ directory was written, so the
+// README only describes one when it exists. It asks the same function that
+// writes them rather than restating the conditions.
+func (c Ctx) HasRunConfigurations() bool { return len(runConfigurations(c)) > 0 }
+
 func runConfigurations(c Ctx) []string {
 	spec := c.Spec
 	var tpls []string

@@ -812,3 +812,44 @@ func section(pbxproj, name string) idList {
 	}
 	return idList(strings.Join(out, "\n"))
 }
+
+// The README told everyone to open Xcode and run, describing a build phase the
+// modular layout does not have — and following it fails the first build, because
+// the XCFramework has to exist before SwiftPM resolves it. The two layouts build
+// differently, so the README has to say which one it is describing.
+func TestReadmeDescribesTheRightIOSBuild(t *testing.T) {
+	modular := testSpec("tunesic")
+	modular.IOSLayout = generator.IOSFeaturesLayout
+	catalog.Normalise(&modular)
+	readme := mustRead(t, generate(t, modular), "README.md")
+
+	if !strings.Contains(readme, "build-framework.sh") {
+		t.Error("the modular layout's bootstrap step is missing from the README")
+	}
+	if strings.Contains(readme, "embedAndSignAppleFrameworkForXcode") {
+		t.Error("the README describes the single-entry-point build phase on the modular layout")
+	}
+
+	simple := testSpec("simple")
+	simple.IOSLayout = "swiftui-simple"
+	catalog.Normalise(&simple)
+	readme = mustRead(t, generate(t, simple), "README.md")
+
+	if !strings.Contains(readme, "embedAndSignAppleFrameworkForXcode") {
+		t.Error("the single-entry-point layout does embed and sign; the README should say so")
+	}
+	if strings.Contains(readme, "build-framework.sh") {
+		t.Error("the single-entry-point layout has no XCFramework to assemble")
+	}
+
+	// An Android-only project has no iOS instructions to give.
+	androidOnly := testSpec("androidonly")
+	androidOnly.IOS = false
+	catalog.Normalise(&androidOnly)
+	readme = mustRead(t, generate(t, androidOnly), "README.md")
+	for _, unwanted := range []string{"Xcode", "build-framework.sh", "iosApp"} {
+		if strings.Contains(readme, unwanted) {
+			t.Errorf("an Android-only README mentions %q", unwanted)
+		}
+	}
+}

@@ -24,9 +24,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux is where this is developed; macOS is where most of its users
-        # are, since the generated projects have an iOS side.
-        os: [ubuntu-latest, macos-latest]
+        # Linux is where this is developed, macOS is where most of its users
+        # are (the generated projects have an iOS side), and Windows is where
+        # the path and file-mode assumptions break if nobody is watching.
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v5
@@ -43,23 +44,6 @@ jobs:
       # it looks like it means.
       - name: Check
         run: task check
-
-  # The tool runs on Windows even though its own test suite makes Unix
-  # assumptions about paths and file modes, so Windows gets a compile and a vet
-  # rather than being left out entirely.
-  windows:
-    name: Build on windows
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - run: go build ./...
-      - run: go vet ./...
 
   # A release cross-compiles from one machine, so that has to keep working - but
   # only once per merge, not on every pull request. Releasing is still never the

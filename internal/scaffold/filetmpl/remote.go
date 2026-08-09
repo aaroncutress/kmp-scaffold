@@ -29,7 +29,30 @@ type Ref struct {
 }
 
 // Slug is the repository's cache and trust key.
-func (r Ref) Slug() string { return path.Join(r.Host, r.Owner, r.Repo) }
+//
+// It becomes a directory, so each part is reduced to something every filesystem
+// will accept. A Windows drive letter is the case that forces this - "C:" is a
+// perfectly good part of a file:// path and an illegal directory name - but a
+// repository path can hold surprises on any platform.
+func (r Ref) Slug() string {
+	return path.Join(safeComponent(r.Host), safeComponent(r.Owner), safeComponent(r.Repo))
+}
+
+// safeComponent replaces the characters Windows forbids in a path component,
+// and trims the trailing dots and spaces it also refuses.
+func safeComponent(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || strings.ContainsRune(`<>:"/\|?*`, r) {
+			return '_'
+		}
+		return r
+	}, s)
+	s = strings.TrimRight(s, ". ")
+	if s == "" {
+		return "_"
+	}
+	return s
+}
 
 // String is the ref in its canonical form.
 func (r Ref) String() string { return r.Raw }
@@ -134,23 +157,35 @@ func parseURLRef(s string) (Ref, bool) {
 // The whole path becomes the cache key, because two directories can perfectly
 // well end in the same name.
 func parseFileRef(raw string) (Ref, bool) {
-	body := strings.TrimPrefix(raw, "file://")
+	// Windows paths arrive with backslashes and a drive letter, whether written
+	// as file://C:\src\tmpl or as the proper file:///C:/src/tmpl. Both are
+	// worth accepting; both normalise to the same thing.
+	//
+	// The replacement is unconditional rather than filepath.ToSlash, which does
+	// nothing off Windows - and this has to understand a Windows path typed on
+	// any machine, not just on one.
+	body := strings.ReplaceAll(strings.TrimPrefix(raw, "file://"), `\`, "/")
 
 	rev := ""
 	if i := strings.LastIndex(body, "@"); i > 0 {
 		rev, body = body[i+1:], body[:i]
 	}
+	// The path itself starts with slashes, so a // separating a subdirectory is
+	// looked for past them rather than from the front.
+	lead := len(body) - len(strings.TrimLeft(body, "/"))
 	subdir := ""
-	if i := strings.Index(body, "//"); i >= 0 {
-		subdir, body = strings.Trim(body[i+2:], "/"), body[:i]
+	if i := strings.Index(body[lead:], "//"); i >= 0 {
+		at := lead + i
+		subdir, body = strings.Trim(body[at+2:], "/"), body[:at]
 	}
 
 	body = strings.TrimSuffix(strings.TrimRight(body, "/"), ".git")
-	if body == "" {
+	clean := strings.TrimLeft(body, "/")
+	if clean == "" {
 		return Ref{}, false
 	}
 
-	dir, repo := path.Split(body)
+	dir, repo := path.Split(clean)
 	if repo == "" {
 		return Ref{}, false
 	}
@@ -160,8 +195,10 @@ func parseFileRef(raw string) (Ref, bool) {
 		Repo:   repo,
 		Subdir: subdir,
 		Rev:    rev,
-		URL:    "file://" + body,
-		Raw:    raw,
+		// Three slashes is the form git wants for a local repository, on either
+		// platform: file:///srv/tmpl, file:///C:/src/tmpl.
+		URL: "file:///" + clean,
+		Raw: raw,
 	}, true
 }
 
@@ -197,7 +234,11 @@ type refEntry struct {
 	Revision string `json:"revision"`
 	// Subdir is the template's directory inside the repository, so a listing
 	// can find it again without being told.
-	Subdir  string    `json:"subdir,omitempty"`
+	Subdir string `json:"subdir,omitempty"`
+	// Ref is what the user typed. A listing shows it back verbatim rather than
+	// rebuilding one from the cache's own directory names, which are sanitised
+	// and so cannot be turned back into the original.
+	Ref     string    `json:"ref,omitempty"`
 	Fetched time.Time `json:"fetched"`
 }
 
@@ -382,7 +423,7 @@ func readIndex(root string) refIndex {
 func recordRevision(root string, ref Ref, revision string) {
 	index := readIndex(root)
 	index.Refs[ref.cacheKey()] = refEntry{
-		Revision: revision, Subdir: ref.Subdir, Fetched: time.Now(),
+		Revision: revision, Subdir: ref.Subdir, Ref: ref.Raw, Fetched: time.Now(),
 	}
 	data, err := json.MarshalIndent(index, "", "  ")
 	if err != nil {

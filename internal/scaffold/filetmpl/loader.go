@@ -199,7 +199,12 @@ func cachedList() []Cached {
 					if rev, _, _ := strings.Cut(refName, "//"); rev != "HEAD" {
 						ref.Rev = rev
 					}
-					ref.Raw = refText(ref)
+					ref.Raw = entry.Ref
+					if ref.Raw == "" {
+						// Written before the ref was recorded; the best that can
+						// be done is to rebuild one.
+						ref.Raw = refText(ref)
+					}
 
 					dir := filepath.Join(repoDir, entry.Revision)
 					if entry.Subdir != "" {
@@ -220,7 +225,9 @@ func cachedList() []Cached {
 	return out
 }
 
-// refText renders a cached repository back into the shorthand a user would type.
+// refText rebuilds a ref from a cache entry that did not record one. It is a
+// best effort: the cache's directory names are sanitised, so a path with a
+// drive letter or a colon in it cannot come back exactly as it went in.
 func refText(ref Ref) string {
 	var prefix string
 	switch ref.Host {

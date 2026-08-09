@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -401,12 +402,19 @@ to = "notes.txt"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if script.Mode()&0o111 == 0 {
-		t.Errorf("run.sh mode = %v, want it executable", script.Mode())
-	}
 	notes, err := os.Stat(filepath.Join(root, "notes.txt"))
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Windows has no executable bit - a file is runnable by its extension - so
+	// the mode is written and then reported back as 0666 whatever was asked
+	// for. That both files exist is the whole of what can be checked there.
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not a thing on Windows")
+	}
+	if script.Mode()&0o111 == 0 {
+		t.Errorf("run.sh mode = %v, want it executable", script.Mode())
 	}
 	if notes.Mode()&0o111 != 0 {
 		t.Errorf("notes.txt mode = %v, want it not executable", notes.Mode())

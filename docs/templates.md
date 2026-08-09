@@ -50,7 +50,7 @@ or in one step, `--template github:acme/templates`. The forms a ref takes:
 | `gitlab:acme/templates@main` | GitLab |
 | `https://git.example.com/t/tmpl.git//service@v2` | any git remote; `//` separates the directory |
 | `git@github.com:acme/templates.git@v2` | over SSH |
-| `file:///srv/templates` | a repository on this machine |
+| `file:///srv/templates` | a repository on this machine (`file://C:\src\templates` on Windows) |
 
 Fetching shells out to `git`, so it uses your existing credentials and says so
 plainly if `git` is not installed.

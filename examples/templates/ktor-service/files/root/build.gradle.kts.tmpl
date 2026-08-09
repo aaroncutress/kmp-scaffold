@@ -31,8 +31,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{{ .Versions.Of "kotlinx-coroutines" }}")
     implementation("ch.qos.logback:logback-classic:{{ .Versions.logback }}")
 
+{{- if .Tests }}
+
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-server-test-host:{{ .Versions.ktor }}")
+{{- end }}
 }
 
 kotlin {

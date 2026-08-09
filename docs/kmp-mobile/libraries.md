@@ -162,6 +162,30 @@ repository's tags and then pinned to whatever the Kotlin side settled on, and
 Package Manager cannot drift off it later. If the Swift side has not published
 that version, the run says so rather than pinning a version that does not exist.
 
+## What you target
+
+Resolution is about what is *current*. What the project *targets* is a separate
+set of answers, asked in the wizard and remembered in `.kmp-scaffold.json` so a
+later `add` matches:
+
+| Answer | Default | Where it lands |
+| --- | --- | --- |
+| Minimum Android SDK | 26 | `android-minSdk` in the catalog |
+| Minimum iOS version | 18.0 | `IPHONEOS_DEPLOYMENT_TARGET`, and `platforms:` in `Package.swift` |
+| Java version | 17 | `jvmTarget` and `sourceCompatibility` |
+| Swift language mode | 5 | `swiftLanguageModes:` and `SWIFT_VERSION` |
+
+`compileSdk` and `targetSdk` are not among them — they are resolved to the newest
+platform your AGP major supports, which is what you want in almost every case.
+Pin `compileSdk` with `--compile-sdk` if you need to.
+
+Two of these are coupled to the toolchain rather than free choices. Swift Package
+Manager only knows a platform case its declared `swift-tools-version` is new
+enough for (`.v18` needs 6.0, `.v26` needs 6.2), so the deployment target and the
+tools version move together. And Swift 6 language mode turns on strict
+concurrency checking, which the Kotlin framework's exported classes are not
+annotated for — hence the default of 5.
+
 ## Pinning versions
 
 Any resolved version can be overridden:

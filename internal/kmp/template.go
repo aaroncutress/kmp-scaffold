@@ -26,8 +26,10 @@ func (Template) Meta() scaffold.Meta {
 		Label: "Kotlin Multiplatform app",
 		Description: "A Compose Android app, a SwiftUI iOS app and a shared KMP module, " +
 			"with Navigation 3, Koin and Ktor already wired together.",
-		Source:      scaffold.Source{Kind: scaffold.SourceBuiltin},
-		AsksPackage: true,
+		Source:        scaffold.Source{Kind: scaffold.SourceBuiltin},
+		AsksPackage:   true,
+		SupportsTests: true,
+		SupportsCI:    true,
 		// The first two are what an existing Gradle project looks like; the
 		// third is one of ours.
 		Sentinels: []string{"settings.gradle.kts", "build.gradle.kts", model.ManifestFile},
@@ -44,6 +46,11 @@ func (t Template) NewAnswers() *scaffold.Answers {
 	spec.AndroidExtras = catalog.DefaultExtras()
 
 	a := scaffold.NewAnswers()
+	// The universal answers are the bag's, and Spec() reads them back down on
+	// every access - so they have to be seeded before the spec is bound, or the
+	// defaults above would be overwritten with the zero value.
+	a.Tests = spec.Tests
+	a.CI = spec.CI
 	a.SetState(&spec)
 	t.Bind(a)
 	return a
@@ -73,6 +80,9 @@ func (Template) Bind(a *scaffold.Answers) {
 	a.Set(QPacks, spec.Packs)
 	a.Set(QChannel, spec.Channel)
 	a.Set(QMinSDK, spec.MinSDK)
+	a.Set(QIOSDeployTgt, spec.IOSDeployTgt)
+	a.Set(QSwiftMode, spec.SwiftMode)
+	a.Set(QJVMTarget, spec.JVMTarget)
 }
 
 // Normalise pulls in dependencies between packs, utilities and extras, and
@@ -262,7 +272,18 @@ func (Template) Summary(a *scaffold.Answers, res *resolve.Result) []scaffold.Sec
 	}
 	if spec.IOS {
 		rows = append(rows, scaffold.Row{Label: "iOS layout", Value: spec.IOSLayout})
+		rows = append(rows, scaffold.Row{
+			Label: "iOS target",
+			Value: fmt.Sprintf("iOS %s · Swift %s", spec.IOSDeployTgt, spec.SwiftMode),
+		})
 	}
+	rows = append(rows, scaffold.Row{Label: "Java target", Value: spec.JVMTarget})
+
+	// Both are off by default only in the sense that saying no is possible; the
+	// review screen should say which way it went either way, because "no tests"
+	// is exactly the sort of thing to notice before generating rather than after.
+	rows = append(rows, scaffold.Row{Label: "Tests", Value: yesNo(spec.Tests)})
+	rows = append(rows, scaffold.Row{Label: "CI workflow", Value: yesNo(spec.CI)})
 
 	sections := []scaffold.Section{
 		{Rows: rows},
@@ -306,6 +327,13 @@ func (Template) Summary(a *scaffold.Answers, res *resolve.Result) []scaffold.Sec
 	}
 
 	return sections
+}
+
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
 }
 
 func labelsFor(ids []string, lookup func(string) (string, bool)) []string {
@@ -362,6 +390,12 @@ func (Template) NextSteps(a *scaffold.Answers) []scaffold.NextStep {
 	}
 	if spec.Android {
 		steps = append(steps, scaffold.NextStep{Command: "./gradlew :androidApp:assembleDebug"})
+	}
+	if spec.Tests {
+		steps = append(steps, scaffold.NextStep{
+			Command: "./gradlew :sharedLogic:allTests",
+			Note:    "runs the shared tests on every target",
+		})
 	}
 	switch {
 	case spec.IOS && spec.IOSLayout == generator.IOSFeaturesLayout:

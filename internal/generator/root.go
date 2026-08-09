@@ -26,8 +26,16 @@ func (rootGenerator) Generate(env *Env) error {
 		{"root/libs.versions.toml", "gradle/libs.versions.toml"},
 		{"root/gradle-wrapper.properties", "gradle/wrapper/gradle-wrapper.properties"},
 		{"root/gitignore", ".gitignore"},
+		{"root/editorconfig", ".editorconfig"},
+		{"root/gitattributes", ".gitattributes"},
 		{"root/README.md", "README.md"},
 		{"buildSrc/build.gradle.kts", "buildSrc/build.gradle.kts"},
+	}
+
+	if spec.CI {
+		files = append(files, struct{ tpl, path string }{
+			"ci/workflow.yml", ".github/workflows/ci.yml",
+		})
 	}
 
 	if spec.HasPack("secrets") {

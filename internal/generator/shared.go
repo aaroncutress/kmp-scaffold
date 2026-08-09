@@ -44,6 +44,9 @@ func (sharedGenerator) Generate(env *Env) error {
 		{"shared/Platform.kt", common("core/util/Platform.kt"), true},
 		{"shared/Platform.android.kt", androidSrc("core/util/Platform.android.kt"), spec.Android},
 		{"shared/Platform.apple.kt", iosSrc("core/util/Platform.apple.kt"), spec.IOS},
+		// The one test that depends on nothing optional, so `allTests` has
+		// something to run whatever else was left out.
+		{"shared/PlatformTest.kt", test("core/util/PlatformTest.kt"), spec.Tests},
 
 		// BaseViewModel
 		{"shared/BaseViewModel.kt", common("core/presentation/BaseViewModel.kt"),
@@ -82,7 +85,7 @@ func (sharedGenerator) Generate(env *Env) error {
 		{"shared/SettingsViewModel.kt", common("feature/settings/presentation/SettingsViewModel.kt"),
 			spec.HasSharedUtil("settings")},
 		{"shared/SettingsViewModelTest.kt", test("feature/settings/presentation/SettingsViewModelTest.kt"),
-			spec.HasSharedUtil("settings")},
+			spec.Tests && spec.HasSharedUtil("settings")},
 
 		// Database
 		{"shared/AppDatabase.kt", common("core/database/AppDatabase.kt"),

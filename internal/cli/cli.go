@@ -155,6 +155,24 @@ func firstOperand(operands []string) string {
 	return operands[0]
 }
 
+// supportsToggle rejects an on/off flag pair aimed at a template that cannot
+// generate the thing at all.
+//
+// Accepting it and doing nothing would be worse: `--no-tests` reads as a
+// guarantee that no tests were written, and a template with none to write would
+// have honoured that by accident rather than by agreeing to it.
+func supportsToggle(supported bool, given map[string]bool, on, off, id string) error {
+	if supported {
+		return nil
+	}
+	for _, name := range []string{on, off} {
+		if given[name] {
+			return fmt.Errorf("--%s does not apply to the %s template, which generates none", name, id)
+		}
+	}
+	return nil
+}
+
 // splitList parses a comma-separated flag value.
 func splitList(v string) []string {
 	var out []string

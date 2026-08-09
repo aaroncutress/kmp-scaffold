@@ -46,8 +46,38 @@ name         = "Ktor service"
 description  = "A Ktor server with layered routes and Koin DI."
 version      = "1.0.0"
 uses_package = true                  # ask the universal "package name?" question
+supports_tests = true                # ask "generate tests?"      -> {{ .Tests }}
+supports_ci    = true                # ask "generate a workflow?" -> {{ .CI }}
 sentinels    = ["build.gradle.kts"]  # files meaning "already a project here"
 ```
+
+### The universal options
+
+`supports_tests` and `supports_ci` opt into two questions the tool asks on your
+template's behalf. They are not questions you declare, because wanting somewhere
+to write tests and wanting the thing built on every pull request are properties
+of a project rather than of what kind of project it is — so every template that
+can honour them is asked the same way, and `--no-tests` means the same thing
+whatever you are generating.
+
+The answers arrive as `{{ .Tests }}` and `{{ .CI }}`, not under `.Vars`, and gate
+files like any other condition:
+
+```toml
+[[files]]
+from = "files/test/ApplicationTest.kt.tmpl"
+to   = "src/test/kotlin/{{ packagePath .Project.Package }}/ApplicationTest.kt"
+when = "{{ .Tests }}"
+```
+
+Declare them only if something is gated on them. A question whose answer changes
+nothing reads as a promise the template does not keep — and a template that
+declares neither is not asked, and gets `false` for both rather than the
+on-by-default answer.
+
+Remember the dependencies as well as the files: a `testImplementation` line left
+behind when tests are off is exactly the half-measure this option exists to
+avoid.
 
 ### Questions
 
@@ -333,6 +363,8 @@ Every Go template — file contents, `to` paths, `when` conditions, summary valu
 | --- | --- |
 | `.Project.Name` | the project name, as typed |
 | `.Project.Package` | the package, when `uses_package` is set |
+| `.Tests` | whether tests were asked for, when `supports_tests` is set |
+| `.CI` | whether a CI workflow was asked for, when `supports_ci` is set |
 | `.Project.Namespace` | the name, lowercased and stripped to letters and digits |
 | `.Project.TypePrefix` | the name in PascalCase |
 | `.Project.Kebab` | the name in kebab-case |

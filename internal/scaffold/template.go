@@ -71,6 +71,13 @@ type Meta struct {
 	// generates something without a package namespace leaves it off.
 	AsksPackage bool
 
+	// SupportsTests and SupportsCI add the universal "generate tests?" and
+	// "generate CI?" questions. Both default to off: asking a template whether
+	// it should write something it has no files for would be a question with
+	// no consequence, which is worse than not asking.
+	SupportsTests bool
+	SupportsCI    bool
+
 	// Sentinels are the files whose presence means a directory already holds a
 	// project of this kind, so generating into it needs --force.
 	Sentinels []string

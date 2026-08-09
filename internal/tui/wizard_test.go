@@ -411,3 +411,45 @@ func TestFeatureFlowRejectsDuplicateNames(t *testing.T) {
 		t.Errorf("no explanation shown:\n%s", w.View())
 	}
 }
+
+// The universal tests and CI questions are asked only of templates that say
+// they can generate them. A question whose answer changes nothing is worse than
+// no question, because it reads as a promise.
+func TestUniversalOptionsFollowTheMeta(t *testing.T) {
+	prompts := func(meta scaffold.Meta) []string {
+		var out []string
+		for _, s := range universalSteps(meta) {
+			out = append(out, s.Title())
+		}
+		return out
+	}
+
+	both := prompts(scaffold.Meta{SupportsTests: true, SupportsCI: true})
+	for _, want := range []string{"Generate tests?", "Generate a CI workflow?"} {
+		if !contains(both, want) {
+			t.Errorf("a template supporting both was not asked %q: %v", want, both)
+		}
+	}
+
+	neither := prompts(scaffold.Meta{})
+	for _, unwanted := range []string{"Generate tests?", "Generate a CI workflow?"} {
+		if contains(neither, unwanted) {
+			t.Errorf("a template supporting neither was asked %q", unwanted)
+		}
+	}
+
+	// Independently, not as a pair.
+	onlyTests := prompts(scaffold.Meta{SupportsTests: true})
+	if !contains(onlyTests, "Generate tests?") || contains(onlyTests, "Generate a CI workflow?") {
+		t.Errorf("the two questions are not independent: %v", onlyTests)
+	}
+}
+
+func contains(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}

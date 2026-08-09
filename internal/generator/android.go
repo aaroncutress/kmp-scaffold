@@ -48,6 +48,11 @@ func (g androidGenerator) Generate(env *Env) error {
 	app := func(p string) string {
 		return path.Join("androidApp/src/main/kotlin", pkg, p)
 	}
+	// Local unit tests: the JVM source set, not the instrumented one, so they
+	// run without a device.
+	appTest := func(p string) string {
+		return path.Join("androidApp/src/test/kotlin", pkg, p)
+	}
 	nav := func(p string) string {
 		return path.Join("core/navigation/src/main/kotlin", pkg, "core/navigation", p)
 	}
@@ -75,6 +80,7 @@ func (g androidGenerator) Generate(env *Env) error {
 		{"android/MainActivity.kt", app("MainActivity.kt"), true},
 		{"android/App.kt", app("App.kt"), true},
 		{"android/AppSerializers.kt", app("AppSerializers.kt"), true},
+		{"android/ExampleUnitTest.kt", appTest("ExampleUnitTest.kt"), spec.Tests},
 
 		// core/navigation
 		{"android/core-navigation.build.gradle.kts", "core/navigation/build.gradle.kts", true},

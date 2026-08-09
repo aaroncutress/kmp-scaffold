@@ -51,6 +51,12 @@ type TemplateBlock struct {
 	Version     string `toml:"version"`
 	// UsesPackage adds the universal "package name?" question.
 	UsesPackage bool `toml:"uses_package"`
+	// SupportsTests and SupportsCI add the universal "generate tests?" and
+	// "generate a CI workflow?" questions, answered into `{{ .Tests }}` and
+	// `{{ .CI }}`. Declare them only if some [[files]] entry is gated on them:
+	// a question whose answer changes nothing is worse than no question.
+	SupportsTests bool `toml:"supports_tests"`
+	SupportsCI    bool `toml:"supports_ci"`
 	// Sentinels are the files whose presence means a directory already holds a
 	// project of this kind.
 	Sentinels []string `toml:"sentinels"`

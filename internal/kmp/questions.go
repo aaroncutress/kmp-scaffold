@@ -25,6 +25,9 @@ const (
 	QPacks         = "packs"
 	QChannel       = "channel"
 	QMinSDK        = "minSdk"
+	QJVMTarget     = "jvmTarget"
+	QIOSDeployTgt  = "iosDeployTgt"
+	QSwiftMode     = "swiftMode"
 )
 
 // Questions is the wizard for this template, asked after the universal name,
@@ -277,6 +280,58 @@ func (Template) Questions() []scaffold.Question {
 				return nil
 			},
 			Apply: func(a *scaffold.Answers, v any) { Spec(a).MinSDK = a.Int(QMinSDK) },
+		},
+
+		{
+			ID:      QIOSDeployTgt,
+			Kind:    scaffold.KindSelect,
+			Prompt:  "Minimum iOS version?",
+			Hint:    "The counterpart to minSdk: the oldest iOS a device can be on and still run this.",
+			SkipFor: func(a *scaffold.Answers) bool { return !Spec(a).IOS },
+			Options: []scaffold.Option{
+				{ID: "18.0", Label: "iOS 18",
+					Desc: "Two releases back. Covers almost every device still getting updates."},
+				{ID: "26.0", Label: "iOS 26",
+					Desc: "The current release. Every API available, the smallest audience."},
+				{ID: "17.0", Label: "iOS 17",
+					Desc: "Three releases back, for an app that has to reach older hardware."},
+			},
+			DefaultFor: func(a *scaffold.Answers) any { return Spec(a).IOSDeployTgt },
+			Apply:      func(a *scaffold.Answers, v any) { Spec(a).IOSDeployTgt = a.Str(QIOSDeployTgt) },
+		},
+
+		{
+			ID:      QSwiftMode,
+			Kind:    scaffold.KindSelect,
+			Prompt:  "Which Swift language mode?",
+			Hint:    "Swift 6 checks concurrency at compile time. The Kotlin framework is not annotated for it.",
+			SkipFor: func(a *scaffold.Answers) bool { return !Spec(a).IOS },
+			Options: []scaffold.Option{
+				{ID: "5", Label: "Swift 5",
+					Desc: "Concurrency warnings, not errors. What the generated code is written against."},
+				{ID: "6", Label: "Swift 6",
+					Desc: "Strict concurrency. Types crossing an actor boundary from Kotlin will need " +
+						"@unchecked Sendable annotations you write yourself."},
+			},
+			DefaultFor: func(a *scaffold.Answers) any { return Spec(a).SwiftMode },
+			Apply:      func(a *scaffold.Answers, v any) { Spec(a).SwiftMode = a.Str(QSwiftMode) },
+		},
+
+		{
+			ID:     QJVMTarget,
+			Kind:   scaffold.KindSelect,
+			Prompt: "Which Java version should the JVM targets compile to?",
+			Hint:   "Applies to the Android app and sharedLogic's JVM output, not to the Gradle daemon.",
+			Options: []scaffold.Option{
+				{ID: "17", Label: "Java 17",
+					Desc: "What Android Gradle Plugin 9 and Gradle 9 are built around."},
+				{ID: "21", Label: "Java 21",
+					Desc: "The current long-term release. Needs a JDK 21 toolchain to build."},
+				{ID: "11", Label: "Java 11",
+					Desc: "For a codebase that still has to interoperate with something older."},
+			},
+			DefaultFor: func(a *scaffold.Answers) any { return Spec(a).JVMTarget },
+			Apply:      func(a *scaffold.Answers, v any) { Spec(a).JVMTarget = a.Str(QJVMTarget) },
 		},
 	}
 }

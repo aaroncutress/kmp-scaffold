@@ -100,6 +100,10 @@ func Extra(id string) Predicate {
 	return func(s model.Spec) bool { return s.HasAndroidExtra(id) }
 }
 
+// Testing is true when the project asked for tests. Every test-only artifact
+// is gated on it, so declining tests leaves no unused dependency behind.
+func Testing(s model.Spec) bool { return s.Tests }
+
 // IOSOnly is true when the project has an iOS target.
 func IOSOnly(s model.Spec) bool { return s.IOS }
 
@@ -451,7 +455,7 @@ func Libraries() []Library {
 		{"koin-androidx-compose", "io.insert-koin:koin-androidx-compose", KeyKoin, "Dependency Injection (Koin)", AndroidOnly},
 		{"koin-core", "io.insert-koin:koin-core", KeyKoin, "Dependency Injection (Koin)", core},
 		{"koin-core-viewmodel", "io.insert-koin:koin-core-viewmodel", KeyKoin, "Dependency Injection (Koin)", core},
-		{"koin-test", "io.insert-koin:koin-test", KeyKoin, "Dependency Injection (Koin)", core},
+		{"koin-test", "io.insert-koin:koin-test", KeyKoin, "Dependency Injection (Koin)", Testing},
 
 		// Networking & Serialization
 		{"ktor-client-android", "io.ktor:ktor-client-android", KeyKtor, "Networking & Serialization", func(model.Spec) bool { return false }},
@@ -487,15 +491,21 @@ func Libraries() []Library {
 		{"supabase-postgrest", "io.github.jan-tennert.supabase:postgrest-kt", "", "Supabase", Pack("supabase")},
 		{"supabase-storage", "io.github.jan-tennert.supabase:storage-kt", "", "Supabase", Pack("supabase")},
 
-		// Testing
-		{"androidx-espresso-core", "androidx.test.espresso:espresso-core", KeyEspresso, "Testing", AndroidOnly},
-		{"androidx-testExt-junit", "androidx.test.ext:junit", KeyTestExt, "Testing", AndroidOnly},
-		{"junit", "junit:junit", KeyJUnit, "Testing", AndroidOnly},
-		{"kotlin-test", "org.jetbrains.kotlin:kotlin-test", KeyKotlin, "Testing", core},
-		{"kotlin-testJunit", "org.jetbrains.kotlin:kotlin-test-junit", KeyKotlin, "Testing", AndroidOnly},
-		{"kotlinx-coroutines-test", "org.jetbrains.kotlinx:kotlinx-coroutines-test", KeyCoroutines, "Testing", core},
-		{"turbine", "app.cash.turbine:turbine", KeyTurbine, "Testing", core},
-		{"ktor-client-mock", "io.ktor:ktor-client-mock", KeyKtor, "Testing", core},
+		// Testing. All of it is gated on the project having asked for tests:
+		// a declared dependency with no test source set to use it is noise in
+		// the catalog and a lie about what the project does.
+		{"androidx-espresso-core", "androidx.test.espresso:espresso-core", KeyEspresso, "Testing",
+			And(Testing, AndroidOnly)},
+		{"androidx-testExt-junit", "androidx.test.ext:junit", KeyTestExt, "Testing",
+			And(Testing, AndroidOnly)},
+		{"junit", "junit:junit", KeyJUnit, "Testing", And(Testing, AndroidOnly)},
+		{"kotlin-test", "org.jetbrains.kotlin:kotlin-test", KeyKotlin, "Testing", Testing},
+		{"kotlin-testJunit", "org.jetbrains.kotlin:kotlin-test-junit", KeyKotlin, "Testing",
+			And(Testing, AndroidOnly)},
+		{"kotlinx-coroutines-test", "org.jetbrains.kotlinx:kotlinx-coroutines-test", KeyCoroutines,
+			"Testing", Testing},
+		{"turbine", "app.cash.turbine:turbine", KeyTurbine, "Testing", Testing},
+		{"ktor-client-mock", "io.ktor:ktor-client-mock", KeyKtor, "Testing", Testing},
 	}
 }
 

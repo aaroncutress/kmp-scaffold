@@ -232,3 +232,101 @@ min_channel = "preview"
 		t.Errorf("resolved %q, want the beta - min_channel raises this key to preview", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// The universal tests / CI answers
+// ---------------------------------------------------------------------------
+
+// optionalTemplate gates one file on {{ .Tests }} and another on {{ .CI }}.
+func optionalTemplate(t *testing.T, declares string) string {
+	t.Helper()
+	return write(t, map[string]string{
+		"template.toml": `
+schema = 1
+
+[template]
+id = "optional"
+name = "Optional"
+` + declares + `
+
+[[files]]
+from = "files/always.txt"
+to = "always.txt"
+
+[[files]]
+from = "files/test.txt"
+to = "test.txt"
+when = "{{ .Tests }}"
+
+[[files]]
+from = "files/ci.yml"
+to = "ci.yml"
+when = "{{ .CI }}"
+`,
+		"files/always.txt": "always\n",
+		"files/test.txt":   "a test\n",
+		"files/ci.yml":     "a workflow\n",
+	})
+}
+
+func TestSupportsFlagsReachTheMeta(t *testing.T) {
+	on := open(t, optionalTemplate(t, "supports_tests = true\nsupports_ci = true"))
+	if !on.Meta().SupportsTests || !on.Meta().SupportsCI {
+		t.Error("a template declaring both should be asked both")
+	}
+
+	off := open(t, optionalTemplate(t, ""))
+	if off.Meta().SupportsTests || off.Meta().SupportsCI {
+		t.Error("a template declaring neither should be asked neither")
+	}
+}
+
+// The answers gate files both ways, which is the whole contract a template
+// author is offered.
+func TestTestsAndCIGateFiles(t *testing.T) {
+	dir := optionalTemplate(t, "supports_tests = true\nsupports_ci = true")
+
+	for _, tc := range []struct{ tests, ci bool }{
+		{true, true}, {true, false}, {false, true}, {false, false},
+	} {
+		tmpl := open(t, dir)
+		a := tmpl.NewAnswers()
+		a.Project.Name = "Thing"
+		a.Tests = tc.tests
+		a.CI = tc.ci
+
+		root := generate(t, tmpl, a)
+		read(t, root, "always.txt")
+
+		for _, c := range []struct {
+			rel  string
+			want bool
+		}{{"test.txt", tc.tests}, {"ci.yml", tc.ci}} {
+			_, err := os.Stat(filepath.Join(root, c.rel))
+			if c.want && err != nil {
+				t.Errorf("tests=%v ci=%v: %s should exist", tc.tests, tc.ci, c.rel)
+			}
+			if !c.want && err == nil {
+				t.Errorf("tests=%v ci=%v: %s should not exist", tc.tests, tc.ci, c.rel)
+			}
+		}
+	}
+}
+
+// A template that never declared support must not be handed the bag's
+// on-by-default answer, or a `when` referring to it would silently be true.
+func TestUndeclaredSupportAnswersNo(t *testing.T) {
+	tmpl := open(t, optionalTemplate(t, ""))
+	a := tmpl.NewAnswers()
+	if a.Tests || a.CI {
+		t.Fatalf("tests=%v ci=%v, want both false for a template that declares neither", a.Tests, a.CI)
+	}
+
+	a.Project.Name = "Thing"
+	root := generate(t, tmpl, a)
+	for _, rel := range []string{"test.txt", "ci.yml"} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+			t.Errorf("%s was written by a template that declares no support", rel)
+		}
+	}
+}

@@ -16,6 +16,12 @@ version      = "1.0.0"
 uses_package = true
 sentinels    = ["build.gradle.kts", "settings.gradle.kts"]
 
+# The tool asks "generate tests?" and "generate a CI workflow?" for any template
+# that declares these, and the answers arrive as {{ .Tests }} and {{ .CI }}.
+# Declare them only if something below is gated on them.
+supports_tests = true
+supports_ci    = true
+
 # ---------------------------------------------------------------------------
 # Questions, asked in order after the universal name / directory / package.
 # ---------------------------------------------------------------------------
@@ -112,6 +118,18 @@ from = "files/Dockerfile.tmpl"
 to   = "Dockerfile"
 when = "{{ .Vars.docker }}"
 
+# .Tests and .CI are the universal answers, not questions this template asks -
+# which is why they are not under .Vars.
+[[files]]
+from = "files/test/ApplicationTest.kt.tmpl"
+to   = "src/test/kotlin/{{ packagePath .Project.Package }}/ApplicationTest.kt"
+when = "{{ .Tests }}"
+
+[[files]]
+from = "files/ci/workflow.yml.tmpl"
+to   = ".github/workflows/ci.yml"
+when = "{{ .CI }}"
+
 # ---------------------------------------------------------------------------
 # The review screen and what to print afterwards.
 # ---------------------------------------------------------------------------
@@ -127,7 +145,7 @@ title = "Service"
 
 [[summary]]
 title = "Extras"
-items = "{{ range .Vars.extras }}{{ . }}\n{{ end }}{{ if .Vars.docker }}Dockerfile{{ end }}"
+items = "{{ range .Vars.extras }}{{ . }}\n{{ end }}{{ if .Vars.docker }}Dockerfile\n{{ end }}{{ if .Tests }}Tests\n{{ end }}{{ if .CI }}CI workflow{{ end }}"
 
 [[next_steps]]
 command = "./gradlew run"

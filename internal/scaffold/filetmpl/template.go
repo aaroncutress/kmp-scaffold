@@ -56,13 +56,15 @@ func (t *Template) Meta() scaffold.Meta {
 		sentinels = []string{model.ManifestFile}
 	}
 	return scaffold.Meta{
-		ID:          b.ID,
-		Label:       b.Name,
-		Description: b.Description,
-		Version:     b.Version,
-		Source:      t.source,
-		AsksPackage: b.UsesPackage,
-		Sentinels:   sentinels,
+		ID:            b.ID,
+		Label:         b.Name,
+		Description:   b.Description,
+		Version:       b.Version,
+		Source:        t.source,
+		AsksPackage:   b.UsesPackage,
+		SupportsTests: b.SupportsTests,
+		SupportsCI:    b.SupportsCI,
+		Sentinels:     sentinels,
 	}
 }
 
@@ -70,6 +72,10 @@ func (t *Template) Meta() scaffold.Meta {
 // the same project the wizard's default path would.
 func (t *Template) NewAnswers() *scaffold.Answers {
 	a := scaffold.NewAnswers()
+	// A template that cannot generate them is never asked, so it must not be
+	// left with the bag's on-by-default answer either.
+	a.Tests = t.manifest.Template.SupportsTests
+	a.CI = t.manifest.Template.SupportsCI
 	for _, q := range t.manifest.Question {
 		if q.Default != nil {
 			a.Set(q.ID, q.Default)

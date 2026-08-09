@@ -429,10 +429,87 @@ kmp-scaffold versions               # check what has newer releases
 
 ## Toolchain notes
 
-The Gradle daemon JVM is not pinned by default. To pin it (and let Gradle
-provision it automatically), run:
+This project compiles to Java {{ .Spec.JVMTarget }}. That is what the code
+targets, not what Gradle itself runs on - the daemon JVM is not pinned by
+default. To pin it (and let Gradle provision it automatically), run:
 
 ```bash
-./gradlew updateDaemonJvm --jvm-version=21
+./gradlew updateDaemonJvm --jvm-version={{ .Spec.JVMTarget }}
 ```
+{{end}}
+
+
+{{define "root/editorconfig"}}
+# Editor defaults, read by IntelliJ, Android Studio, Xcode, VS Code and most
+# other editors without a plugin. Keeps formatting consistent for anyone who
+# opens this project, whatever they open it in.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# kotlin.code.style=official in gradle.properties says four spaces; this is the
+# same rule for editors that do not read Gradle.
+[*.{kt,kts}]
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+max_line_length = 120
+
+[*.swift]
+max_line_length = 120
+
+[*.{yml,yaml,json,xml,plist,pbxproj,xcconfig,xcscheme,xcworkspacedata}]
+indent_size = 2
+
+[*.{gradle,properties,toml}]
+indent_size = 2
+
+# Two trailing spaces are a line break in Markdown, so stripping them changes
+# the rendered output.
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
+
+[*.bat]
+end_of_line = crlf
+{{end}}
+
+
+{{define "root/gitattributes"}}
+# Normalise line endings on the way into the repository, so a checkout on
+# Windows and one on macOS produce the same working tree.
+* text=auto eol=lf
+
+# gradlew is executed by a shell. CRLF in it produces "bad interpreter", which
+# is a confusing way to find out your editor rewrote the file.
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Batch files are run by cmd.exe, which wants CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary, so git neither converts line endings nor tries to diff them.
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.keystore binary
+*.jks binary
+
+gradle/wrapper/gradle-wrapper.jar binary
+
+# project.pbxproj is deliberately left as ordinary text. `merge=union` is often
+# suggested for it, and it does resolve conflicts automatically - by keeping
+# both sides, which in an object graph produces a file Xcode cannot open. A
+# conflict here is worth resolving by hand.
 {{end}}

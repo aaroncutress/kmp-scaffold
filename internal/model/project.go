@@ -45,6 +45,11 @@ type Spec struct {
 	// are derived from them.
 	RootTabs []string `json:"rootTabs"`
 
+	// Tests writes the test source sets, the dependencies they need, and one
+	// worked example per platform. CI writes a GitHub Actions workflow.
+	Tests bool `json:"tests"`
+	CI    bool `json:"ci"`
+
 	// Version policy
 	Channel      string `json:"channel"`      // stable | preview | bleeding
 	Offline      bool   `json:"offline"`      // skip network, use baselines
@@ -53,8 +58,13 @@ type Spec struct {
 	AGP          string `json:"agp"`          // "" = resolve
 	KotlinVer    string `json:"kotlin"`       // "" = resolve
 	GradleVer    string `json:"gradle"`       // "" = resolve
-	JVMTarget    string `json:"jvmTarget"`    // "11"
-	IOSDeployTgt string `json:"iosDeployTgt"` // "18.2"
+	JVMTarget    string `json:"jvmTarget"`    // "17"
+	IOSDeployTgt string `json:"iosDeployTgt"` // "18.0"
+
+	// SwiftMode is the Swift language mode the iOS side compiles in, "5" or
+	// "6". Not a version to resolve: 6 turns on strict concurrency, which is a
+	// decision about the code rather than about being current.
+	SwiftMode string `json:"swiftMode"` // "5"
 }
 
 // Defaults returns a Spec pre-filled with the recommended answers. The wizard
@@ -68,11 +78,20 @@ func Defaults() Spec {
 		// SharedUtils, AndroidExtras and Packs are filled from the catalog by
 		// the caller, so a pack and the utility that depends on it cannot drift
 		// apart as the catalog changes.
-		RootTabs:     []string{"Home", "Settings"},
-		Channel:      "preview",
-		MinSDK:       26,
-		JVMTarget:    "11",
-		IOSDeployTgt: "18.2",
+		RootTabs: []string{"Home", "Settings"},
+		Tests:    true,
+		CI:       true,
+		Channel:  "preview",
+		MinSDK:   26,
+		// 17 is what AGP 9 and Gradle 9 are built around; 11 is behind the
+		// toolchain everything else here resolves to.
+		JVMTarget: "17",
+		// A whole major version, not a point release: a deployment target of
+		// 18.2 excludes 18.0 and 18.1 devices for no stated reason.
+		IOSDeployTgt: "18.0",
+		// Swift 5 language mode. Kotlin/Native's exported classes are not
+		// Sendable, so 6 is offered rather than assumed.
+		SwiftMode: "5",
 	}
 }
 

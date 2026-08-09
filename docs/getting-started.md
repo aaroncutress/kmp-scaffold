@@ -51,17 +51,33 @@ Nothing here can fail the run. Without a configured `user.name` and
 `user.email`, the repository is created and the files staged, and the summary
 says what to set and what to run to finish.
 
-### 4. Package
+### 4. Tests
+
+Whether to generate test source sets, the dependencies they need, and one
+worked example per platform: a shared test in `commonTest` that runs on every
+target, a JVM unit test for the Android app, and a Swift test target.
+
+Saying no leaves nothing behind — no test directories, no `testImplementation`
+lines, and no testing entries in `libs.versions.toml`. Saying yes is the
+default, and `./gradlew :sharedLogic:allTests` has something to run immediately.
+
+### 5. CI workflow
+
+Whether to write `.github/workflows/ci.yml`: a build on every pull request and
+on the default branch, with a macOS job building the iOS side when the project
+has one. It runs the tests too, if you asked for them.
+
+### 6. Package
 
 Reverse-DNS (`io.kontour.tunesic`), doubling as the Android `applicationId`. It
 cannot contain a Kotlin keyword; the wizard tells you if it does.
 
-### 5. Platforms
+### 7. Platforms
 
 Tick Android, iOS, or both. `sharedLogic` is always generated — it is the point
 of the exercise.
 
-### 6. Android navigation layout
+### 8. Android navigation layout
 
 Two options today, both built on Navigation 3:
 
@@ -74,7 +90,7 @@ Two options today, both built on Navigation 3:
 These come from a registry, so a new layout added later appears here
 automatically — see [extending kmp-scaffold](extending.md#adding-a-project-layout).
 
-### 7. Root tabs
+### 9. Root tabs
 
 Only asked for the shell layout. Comma-separated, in order:
 
@@ -87,7 +103,7 @@ a `RootRoute`, and an entry in the navigation bar with a sensible Material
 Symbols icon picked from its name. Six is the practical maximum on a phone, and
 the wizard will say so.
 
-### 8. iOS layout
+### 10. iOS layout
 
 - **SwiftUI, one target per feature** (default) — a local Swift package with a
   target per feature, a shared `CoreNavigation` module for route payloads, and a
@@ -103,7 +119,7 @@ The modular layout needs the shared framework as an XCFramework, so there is one
 extra step before the first Xcode build (`./iosApp/build-framework.sh`). The
 generator tells you, and so does `iosApp/README.md`.
 
-### 9. Shared utilities
+### 11. Shared utilities
 
 The checklist that matters most. These are the pieces of `sharedLogic` that
 every one of your projects tends to grow anyway:
@@ -124,13 +140,13 @@ All are on by default. Turning one off simply means those files are not written.
 Some depend on others (the network observer needs `BaseViewModel`); the wizard
 pulls those in for you and says so on the summary screen.
 
-### 10. Android extras
+### 12. Android extras
 
 Wiring in `androidApp` and `core/ui` that most apps end up writing by hand:
 bottom-sheet and dialog scene strategies, the splash screen, a global snackbar
 host that survives navigation, an offline banner, and edge-to-edge handling.
 
-### 11–12. Libraries
+### 13–14. Libraries
 
 First pick a starting point — **Basic** (images, local database, secrets,
 logging), **Minimal** (core only), or **Everything** — then fine-tune the exact
@@ -143,7 +159,7 @@ test stack.
 See [Libraries and versions](kmp-mobile/libraries.md) for what each pack pulls
 in.
 
-### 13. Version channel
+### 15. Version channel
 
 How current you want to be:
 
@@ -155,13 +171,37 @@ How current you want to be:
 Libraries that have never had a stable release always use their newest track
 regardless, because there is nothing else available.
 
-### 14. Minimum Android SDK
+### 16. Minimum Android SDK
 
 `compileSdk` and `targetSdk` are resolved for you from Google's SDK index,
 capped at what your Android Gradle Plugin version supports. Only `minSdk` is
 your call.
 
-### 15. Resolution
+### 17. Minimum iOS version
+
+The counterpart to `minSdk`: the oldest iOS a device can be on and still run
+this. iOS 18 by default, with iOS 26 and iOS 17 offered.
+
+This is not only a build setting. It decides the `platforms:` line in the Swift
+package, and Swift Package Manager only knows a platform its declared
+`swift-tools-version` is new enough for — so the two move together.
+
+### 18. Swift language mode
+
+Swift 5 by default, Swift 6 on request. Swift 6 checks concurrency at compile
+time, and the Kotlin framework's exported classes carry no `Sendable`
+annotations — so anything crossing an actor boundary will need annotating by
+hand. The generated Swift is written against mode 5.
+
+Only asked when the project has an iOS side.
+
+### 19. Java version
+
+What the JVM targets compile to: Java 17 by default, with 21 and 11 offered.
+This is `jvmTarget` and `sourceCompatibility`, not the JVM Gradle itself runs
+on — the generated README says how to pin that.
+
+### 20. Resolution
 
 The tool now contacts Maven Central, Google Maven, Google's SDK index and the
 Gradle release feed, and shows you what it found:
@@ -184,7 +224,7 @@ Resolved versions
 
 Anything the resolver had to adjust is explained here, not buried in a log.
 
-### 16. Review
+### 21. Review
 
 A final checklist of every decision, plus the toolchain versions. <kbd>enter</kbd>
 generates; <kbd>esc</kbd> goes back to change something.
@@ -231,6 +271,8 @@ kmp-scaffold new my-app \
   --libraries images,database,secrets \
   --channel stable \
   --min-sdk 26 \
+  --ios-deployment-target 18.0 \
+  --jvm-target 17 \
   --yes
 ```
 
@@ -240,6 +282,11 @@ automatically when stdout is not a terminal, so piping output works without
 
 The git repository is set up in this mode too, unless the target is already
 inside one. `--no-git` turns it off; `--git` forces it on.
+
+Tests and a CI workflow are generated in this mode too. `--no-tests` and
+`--no-ci` turn them off. Unlike the flags above, these apply to any template
+that says it can generate them, not only to `kmp-mobile` — and a template that
+cannot says so rather than accepting the flag and ignoring it.
 
 Add `--dry-run` to see exactly what would be written first.
 

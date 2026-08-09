@@ -1,5 +1,5 @@
 {{define "iosfeatures/Package.swift"}}
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
 
 // Every feature depends on the same three things: the shared route payloads,
@@ -73,7 +73,35 @@ let package = Package(
         .target(name: "{{ .Pascal }}", dependencies: featureDependencies),
 {{- end }}
         // kmp-scaffold:ios-targets
-    ]
+{{- if .Spec.Tests }}
+
+        // Tests for the package, run by `swift test` or Xcode's Test navigator.
+        // One target covering every feature, so adding a feature does not add a
+        // target here - the same reason the app links one umbrella product.
+        .testTarget(
+            name: "FeatureTests",
+            dependencies: [
+                "CoreNavigation",
+{{- range .Tabs }}
+                "{{ .Pascal }}",
+{{- end }}
+                // kmp-scaffold:ios-test-deps
+            ]
+        ),
+{{- end }}
+    ],
+{{- if eq .Spec.SwiftMode "5" }}
+    // Swift 5 language mode. Kotlin/Native exports its classes to Objective-C
+    // without Sendable annotations, so Swift 6's strict concurrency checking
+    // flags every shared type that crosses an actor boundary. Move to .v6 when
+    // you are ready to annotate that boundary yourself.
+    swiftLanguageModes: [.v5]
+{{- else }}
+    // Swift 6 language mode: strict concurrency checking is on. Types exported
+    // from the Kotlin framework are not Sendable, so anything you share across
+    // an actor boundary needs an explicit annotation.
+    swiftLanguageModes: [.v6]
+{{- end }}
 )
 {{end}}
 
@@ -710,7 +738,7 @@ into `Package.swift` and `AppCoordinator.swift`.
 					"@executable_path/Frameworks",
 				);
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = {{ .Spec.SwiftMode }}.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -738,7 +766,7 @@ into `Package.swift` and `AppCoordinator.swift`.
 					"@executable_path/Frameworks",
 				);
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = {{ .Spec.SwiftMode }}.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -785,5 +813,46 @@ into `Package.swift` and `AppCoordinator.swift`.
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = FE12BB26BACD9877A2FAADDF /* Project object */;
+}
+{{end}}
+
+
+{{define "iosfeatures/RouteTests.swift"}}
+import Testing
+
+@testable import CoreNavigation
+
+/**
+ Swift-side tests, run from Xcode's Test navigator.
+
+ Not by `swift test`: that builds for the host, and this package is iOS-only and
+ links an iOS XCFramework. Open iosApp.xcodeproj and run the tests there.
+
+ Routes are the natural thing to test here: they are the contract between
+ features, they are plain values, and they need no Kotlin framework loaded.
+ Logic that reaches into sharedLogic belongs in commonTest instead, where the
+ Android side runs it too.
+ */
+struct RouteTests {
+{{- if .Tabs }}
+{{- range .Tabs }}
+
+    @Test func {{ .Camel }}RouteIsAValue() {
+        // Routes travel through NavigationPath, which requires Hashable - so
+        // equality and hashing are what the navigation actually depends on.
+        #expect({{ .Pascal }}Route() == {{ .Pascal }}Route())
+        #expect(Set([{{ .Pascal }}Route(), {{ .Pascal }}Route()]).count == 1)
+    }
+{{- end }}
+{{- else }}
+
+    // This project has no root tabs yet, so there are no routes to test. The
+    // target exists anyway, because a test target that compiles is what proves
+    // the package, the toolchain and `swift test` are wired up - replace this
+    // once you add a feature.
+    @Test func theFeaturesPackageBuilds() {
+        #expect(Bool(true))
+    }
+{{- end }}
 }
 {{end}}

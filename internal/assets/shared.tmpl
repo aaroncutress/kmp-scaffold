@@ -195,6 +195,8 @@ kotlin {
         }
 {{- end }}
 
+{{- if .Spec.Tests }}
+
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.koin.test)
@@ -204,6 +206,7 @@ kotlin {
             implementation(libs.ktor.client.mock)
 {{- end }}
         }
+{{- end }}
     }
 
     compilerOptions {
@@ -1079,6 +1082,29 @@ object KoinHelper : KoinComponent {
                 "Could not find the Kotlin class behind Objective-C type: $objCClass"
             )
         return getKoin().get(clazz = kClass, qualifier = null, parameters = null)
+    }
+}
+{{end}}
+
+
+{{define "shared/PlatformTest.kt"}}
+package {{ .Spec.Package }}.core.util
+
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+/**
+ * A test that runs on every target, so `./gradlew allTests` proves the test
+ * setup works before you have written anything of your own.
+ *
+ * It deliberately depends on nothing optional: whatever else this project was
+ * generated with, this compiles and passes.
+ */
+class PlatformTest {
+
+    @Test
+    fun `every platform reports a name`() {
+        assertTrue(currentPlatform().name.isNotBlank())
     }
 }
 {{end}}

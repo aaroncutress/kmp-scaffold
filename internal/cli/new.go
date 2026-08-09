@@ -55,12 +55,19 @@ Flags:
 		channel    = fs.String("channel", "", "Version channel: stable, preview or bleeding")
 		minSDK     = fs.Int("min-sdk", 0, "Android minSdk")
 		compileSDK = fs.Int("compile-sdk", 0, "Pin compileSdk instead of resolving it")
+		iosDeploy  = fs.String("ios-deployment-target", "", "Minimum iOS version, e.g. 18.0")
+		swiftMode  = fs.String("swift-mode", "", "Swift language mode: 5 or 6")
+		jvmTarget  = fs.String("jvm-target", "", "Java version the JVM targets compile to, e.g. 17")
 		gradleVer  = fs.String("gradle", "", "Pin the Gradle version")
 		kotlinVer  = fs.String("kotlin", "", "Pin the Kotlin version")
 		agpVer     = fs.String("agp", "", "Pin the Android Gradle Plugin version")
 		offline    = fs.Bool("offline", false, "Skip version resolution and use the built-in baseline")
 		git        = fs.Bool("git", false, "Set up a git repository (the default, unless already inside one)")
 		noGit      = fs.Bool("no-git", false, "Do not set up a git repository")
+		tests      = fs.Bool("tests", false, "Generate test source sets and examples (the default)")
+		noTests    = fs.Bool("no-tests", false, "Do not generate tests")
+		ci         = fs.Bool("ci", false, "Generate a CI workflow (the default)")
+		noCI       = fs.Bool("no-ci", false, "Do not generate a CI workflow")
 		refresh    = fs.Bool("refresh", false, "Re-fetch a remote template instead of using the cached copy")
 		trust      = fs.Bool("trust", false, "Use a remote template without being asked to review it")
 		yes        = fs.Bool("yes", false, "Skip the wizard and accept the defaults")
@@ -104,13 +111,41 @@ Flags:
 	answers := template.NewAnswers()
 	answers.Offline = *offline
 
+	// Tests and CI apply to any template that says it can generate them, rather
+	// than to one template the way the structural flags below do. Resolved here,
+	// before the wizard, so the question it asks starts from what the flags said.
+	meta := template.Meta()
+	if err := supportsToggle(meta.SupportsTests, given, "tests", "no-tests", meta.ID); err != nil {
+		return err
+	}
+	if err := supportsToggle(meta.SupportsCI, given, "ci", "no-ci", meta.ID); err != nil {
+		return err
+	}
+	switch {
+	case !meta.SupportsTests:
+		answers.Tests = false
+	case *noTests:
+		answers.Tests = false
+	case *tests:
+		answers.Tests = true
+	}
+	switch {
+	case !meta.SupportsCI:
+		answers.CI = false
+	case *noCI:
+		answers.CI = false
+	case *ci:
+		answers.CI = true
+	}
+
 	// The structural flags belong to the Kotlin Multiplatform template. Another
 	// template answers its questions through the wizard or its own defaults;
 	// silently ignoring flags it has never heard of would be worse than saying
 	// so, so they are rejected.
 	kmpTemplate, isKMP := template.(kmp.Template)
 	kmpFlags := []string{"no-android", "no-ios", "android-layout", "ios-layout", "tabs",
-		"libraries", "utilities", "android-extras", "min-sdk", "compile-sdk", "gradle", "kotlin", "agp"}
+		"libraries", "utilities", "android-extras", "min-sdk", "compile-sdk", "gradle", "kotlin", "agp",
+		"ios-deployment-target", "swift-mode", "jvm-target"}
 	if !isKMP {
 		for _, f := range kmpFlags {
 			if given[f] {
@@ -164,6 +199,15 @@ Flags:
 		}
 		if *channel != "" {
 			spec.Channel = *channel
+		}
+		if *iosDeploy != "" {
+			spec.IOSDeployTgt = *iosDeploy
+		}
+		if *swiftMode != "" {
+			spec.SwiftMode = *swiftMode
+		}
+		if *jvmTarget != "" {
+			spec.JVMTarget = *jvmTarget
 		}
 		if *minSDK > 0 {
 			spec.MinSDK = *minSDK

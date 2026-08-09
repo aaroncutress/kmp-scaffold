@@ -21,6 +21,8 @@ my-app/
 ├── feature/<name>/              one Gradle module per feature, api/impl split
 ├── androidApp/                  the Android application module
 ├── iosApp/                      the Xcode project and its local Swift package
+├── .github/workflows/           a CI workflow, unless you said no
+├── .editorconfig                formatting, for whatever editor opens this
 └── .run/                        JetBrains run configurations, ready in the IDE
 ```
 
@@ -54,9 +56,18 @@ Most of it. The wizard asks, and `new` takes the same answers as flags:
   `libs.versions.toml`.
 - **Shared utilities.** Small pieces of `sharedLogic` — a Koin graph, a result
   type, an analytics facade — each switchable.
+- **Tests.** `--no-tests` drops the test source sets, their dependencies and
+  their catalog entries. On, you get a shared test that runs on every target, a
+  JVM unit test for the Android app, and a Swift test target.
+- **A CI workflow.** `--no-ci` drops `.github/workflows/ci.yml`, which otherwise
+  builds both sides on every pull request.
+- **What you target.** The minimum Android SDK and iOS version, the Java version
+  the JVM targets compile to, and whether Swift compiles in language mode 5 or 6.
 
 Versions are never hard-coded: each one is resolved against its repository when
-you generate, with a known-good baseline used offline. See
+you generate, with a known-good baseline used offline — Gradle and the Android
+platform are whatever is current the day you run it. What you *target* is a
+different question, and one the wizard asks: see
 [libraries and versions](libraries.md#how-resolution-works).
 
 ## Building it

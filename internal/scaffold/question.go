@@ -113,12 +113,29 @@ type Answers struct {
 	// property of this run rather than of the project.
 	InitGit bool
 
+	// Tests and CI are asked of every template that says it can generate them,
+	// rather than being questions a template declares for itself. Wanting
+	// somewhere to write tests, and wanting the thing built on every pull
+	// request, are properties of the project rather than of what it is a
+	// project of - so asking them once means a template gets both for free.
+	//
+	// Unlike Offline and InitGit these are remembered, by whatever the template
+	// persists: `add` needs to know whether the project it is extending has
+	// tests before it writes any.
+	Tests bool
+	CI    bool
+
 	state any
 }
 
 // NewAnswers returns an empty bag.
+//
+// Tests and CI start on, matching what the wizard offers and what the built-in
+// template defaults to. A template that cannot generate them says so in its
+// Meta and has them cleared before anything reads them - which is the one place
+// that decision belongs, rather than in whatever happens to construct a bag.
 func NewAnswers() *Answers {
-	return &Answers{Values: map[string]any{}}
+	return &Answers{Values: map[string]any{}, Tests: true, CI: true}
 }
 
 // State returns the template's typed view.

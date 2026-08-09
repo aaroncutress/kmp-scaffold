@@ -33,6 +33,17 @@ type Vars struct {
 	AndroidExtras []string `json:"androidExtras"`
 	Packs         []string `json:"packs"`
 	RootTabs      []string `json:"rootTabs"`
+	Tests         bool     `json:"tests"`
+	CI            bool     `json:"ci"`
+
+	// The toolchain a project was generated against. Recorded because `add`
+	// regenerates files that carry these values, and a feature added later must
+	// not quietly move the project to a different deployment target or language
+	// mode. Absent in projects generated before they were asked, which is why
+	// SpecFrom fills them from the defaults rather than trusting the zero value.
+	JVMTarget    string `json:"jvmTarget,omitempty"`
+	IOSDeployTgt string `json:"iosDeployTgt,omitempty"`
+	SwiftMode    string `json:"swiftMode,omitempty"`
 }
 
 // FeatureVars is what this template records about each feature it added.
@@ -55,6 +66,11 @@ func VarsOf(spec model.Spec) Vars {
 		AndroidExtras: spec.AndroidExtras,
 		Packs:         spec.Packs,
 		RootTabs:      spec.RootTabs,
+		Tests:         spec.Tests,
+		CI:            spec.CI,
+		JVMTarget:     spec.JVMTarget,
+		IOSDeployTgt:  spec.IOSDeployTgt,
+		SwiftMode:     spec.SwiftMode,
 	}
 }
 
@@ -75,6 +91,7 @@ func SpecFrom(m *model.Manifest) (model.Spec, Vars, error) {
 		return model.Spec{}, Vars{}, err
 	}
 
+	defaults := model.Defaults()
 	spec := model.Spec{
 		Name:          m.Project.Name,
 		Package:       m.Project.Package,
@@ -87,9 +104,25 @@ func SpecFrom(m *model.Manifest) (model.Spec, Vars, error) {
 		AndroidExtras: vars.AndroidExtras,
 		Packs:         append([]string(nil), vars.Packs...),
 		RootTabs:      vars.RootTabs,
-		JVMTarget:     "11",
+		Tests:         vars.Tests,
+		CI:            vars.CI,
+		// A project generated before these were recorded has no answer, and the
+		// zero value is not one - an empty deployment target would render as a
+		// Swift platform this tool never offered. The defaults are what such a
+		// project was generated with.
+		JVMTarget:    or(vars.JVMTarget, defaults.JVMTarget),
+		IOSDeployTgt: or(vars.IOSDeployTgt, defaults.IOSDeployTgt),
+		SwiftMode:    or(vars.SwiftMode, defaults.SwiftMode),
 	}
 	return spec, vars, nil
+}
+
+// or is the first non-empty of the two.
+func or(recorded, fallback string) string {
+	if recorded != "" {
+		return recorded
+	}
+	return fallback
 }
 
 // FeatureVarsOf reads what this template recorded about a feature.
@@ -118,5 +151,9 @@ func Spec(a *scaffold.Answers) *model.Spec {
 	if a.Offline {
 		spec.Offline = true
 	}
+	// Tests and CI are asked once, for every template, so they arrive on the
+	// bag rather than through a question of this template's own.
+	spec.Tests = a.Tests
+	spec.CI = a.CI
 	return spec
 }

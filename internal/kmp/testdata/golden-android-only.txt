@@ -1,8 +1,11 @@
+.editorconfig  25392e4be085dda4
+.gitattributes  36b1e99254958bf7
+.github/workflows/ci.yml  4042aaf545d53ab3
 .gitignore  e1460a92f0fd99eb
-.kmp-scaffold.json  e060c7500e5a316f
+.kmp-scaffold.json  4483777f31e17282
 .run/androidApp.run.xml  65d0de9fbbeff68d
-README.md  3d970243bc4c627a
-androidApp/build.gradle.kts  2c26b93b316978f3
+README.md  abf725fdea3d5b01
+androidApp/build.gradle.kts  d552106ba561dc9a
 androidApp/proguard-rules.pro  717e556350432a10
 androidApp/src/main/AndroidManifest.xml  44680370ce057830
 androidApp/src/main/kotlin/io/kontour/tunesic/App.kt  ee77655ebc9f3f3e
@@ -15,11 +18,12 @@ androidApp/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml  678da6560d837e9
 androidApp/src/main/res/values/ic_launcher_background.xml  c01c83d637a444b8
 androidApp/src/main/res/values/strings.xml  10604d39d13f25b9
 androidApp/src/main/res/values/themes.xml  dd5c0ad5fbf742b7
+androidApp/src/test/kotlin/io/kontour/tunesic/ExampleUnitTest.kt  3ed82868f4cf7fe6
 build.gradle.kts  48e58a2fc3e87b5a
 buildSrc/build.gradle.kts  aaa4f0b4ad9020e9
 buildSrc/src/main/kotlin/tunesic.android.compose.gradle.kts  6703cb24ae22f596
 buildSrc/src/main/kotlin/tunesic.android.feature.gradle.kts  5db9d1e55699062a
-buildSrc/src/main/kotlin/tunesic.android.library.gradle.kts  fd08b7e4bc08b338
+buildSrc/src/main/kotlin/tunesic.android.library.gradle.kts  de15a79565941928
 core/navigation/build.gradle.kts  f3a5fde68c18c650
 core/navigation/src/main/kotlin/io/kontour/tunesic/core/navigation/NavigationState.kt  9df93b7250e77eac
 core/navigation/src/main/kotlin/io/kontour/tunesic/core/navigation/Navigator.kt  dc3eccf3c31e1e35
@@ -45,6 +49,7 @@ gradle.properties  b315554ce039fd7a
 gradle/libs.versions.toml  5fa1e3177ce978d0
 gradle/wrapper/gradle-wrapper.properties  1d126b2f29d1a878
 settings.gradle.kts  b5f011b5ce30838f
-sharedLogic/build.gradle.kts  e128b6fba907a749
+sharedLogic/build.gradle.kts  29a34383fdd0de93
 sharedLogic/src/androidMain/kotlin/io/kontour/tunesic/core/util/Platform.android.kt  47cccbef8a7dba4b
 sharedLogic/src/commonMain/kotlin/io/kontour/tunesic/core/util/Platform.kt  ab87f17922745237
+sharedLogic/src/commonTest/kotlin/io/kontour/tunesic/core/util/PlatformTest.kt  ac89d91557fadb7f

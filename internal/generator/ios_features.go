@@ -63,6 +63,13 @@ func (g iosFeaturesGenerator) Generate(env *Env) error {
 		{"ios/AccentColor.Contents.json", path.Join(iosAppSources, "Assets.xcassets/AccentColor.colorset/Contents.json")},
 		{"ios/PreviewAssets.Contents.json", path.Join(iosAppSources, "Preview Content/Preview Assets.xcassets/Contents.json")},
 	}
+	if env.Ctx.Spec.Tests {
+		// SwiftPM finds a test target's sources under Tests/<target name>.
+		files = append(files, struct{ tpl, path string }{
+			"iosfeatures/RouteTests.swift",
+			path.Join(iosPackageRoot, "Tests/FeatureTests/RouteTests.swift"),
+		})
+	}
 	for _, f := range files {
 		if err := env.Render(f.tpl, f.path); err != nil {
 			return err
@@ -117,13 +124,21 @@ func (iosFeaturesGenerator) GenerateFeature(env *Env) error {
 // ---------------------------------------------------------------------------
 
 // IOSDeploymentMajor is the major iOS version for Package.swift's `platforms`,
-// derived from the project's deployment target: "18.2" -> "v18".
+// derived from the project's deployment target: "18.0" -> "v18".
+//
+// SwiftPM's platform cases are gated on the manifest's swift-tools-version -
+// .v18 needs 6.0 and .v26 needs 6.2 - so the version declared at the top of the
+// generated Package.swift is the floor for anything this returns.
 func (c Ctx) IOSDeploymentMajor() string {
 	major, _, _ := strings.Cut(c.Spec.IOSDeployTgt, ".")
 	if n, err := strconv.Atoi(major); err == nil && n >= 13 {
 		return "v" + strconv.Itoa(n)
 	}
-	return "v17"
+	// No deployment target to read, which means a spec that was rebuilt from a
+	// manifest written before it was recorded. What that project was generated
+	// with is the default, not some third value.
+	fallback, _, _ := strings.Cut(model.Defaults().IOSDeployTgt, ".")
+	return "v" + fallback
 }
 
 // ObservableViewModelSwiftVersion is the version Package.swift pins.

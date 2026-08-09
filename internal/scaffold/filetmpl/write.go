@@ -27,6 +27,13 @@ type Ctx struct {
 	// Gen is the kmp-scaffold version that generated this.
 	Gen string
 
+	// Tests and CI are the universal answers, asked of every template that
+	// declares supports_tests / supports_ci. They are here rather than in Vars
+	// because they are not this template's questions - gate a file on them with
+	// `when = "{{ .Tests }}"`.
+	Tests bool
+	CI    bool
+
 	// ProjectVars is what the project was generated with, set while a recipe
 	// runs. It is how a recipe asks whether the project has the thing it needs:
 	// `{{ if has .ProjectVars.extras "auth" }}`.
@@ -75,6 +82,8 @@ func (t *Template) ctx(a *scaffold.Answers, res *resolve.Result) Ctx {
 		Project:  a.Project,
 		Vars:     a.Values,
 		Versions: Versions{},
+		Tests:    a.Tests,
+		CI:       a.CI,
 	}
 	if c.Vars == nil {
 		c.Vars = map[string]any{}

@@ -46,6 +46,11 @@ func answersFor(spec model.Spec) *scaffold.Answers {
 		Package:       spec.Package,
 		ApplicationID: spec.ApplicationID,
 	}
+	// Tests and CI are universal answers, so they live on the bag and Spec()
+	// reads them back down - seeded here for the same reason NewAnswers seeds
+	// them, and before Bind for the same reason.
+	a.Tests = spec.Tests
+	a.CI = spec.CI
 	a.SetState(&spec)
 	tmpl.Bind(a)
 	return a

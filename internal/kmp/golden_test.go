@@ -45,6 +45,16 @@ func TestGoldenProjects(t *testing.T) {
 			catalog.Normalise(&spec)
 			return spec
 		}},
+		// Declining tests and CI removes files, catalog entries and dependency
+		// lines across four generators. Fingerprinting the negative path is the
+		// only way that stays true as those templates change.
+		{"no-tests-no-ci", func() model.Spec {
+			spec := testSpec("tunesic")
+			spec.Tests = false
+			spec.CI = false
+			catalog.Normalise(&spec)
+			return spec
+		}},
 	}
 
 	for _, tc := range cases {

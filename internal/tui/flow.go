@@ -124,6 +124,27 @@ func universalSteps(meta scaffold.Meta) []Step {
 		Apply: func(a *scaffold.Answers, v bool) { a.InitGit = v },
 	})
 
+	// Asked here rather than by each template, because wanting tests and wanting
+	// CI are properties of the project rather than of what kind of project it
+	// is. A template that has no files to write for either says so in its meta
+	// and is not asked.
+	if meta.SupportsTests {
+		steps = append(steps, &ConfirmStep{
+			Prompt:  "Generate tests?",
+			Hint:    "Test source sets, the dependencies they need, and one worked example per platform.",
+			Default: true,
+			Apply:   func(a *scaffold.Answers, v bool) { a.Tests = v },
+		})
+	}
+	if meta.SupportsCI {
+		steps = append(steps, &ConfirmStep{
+			Prompt:  "Generate a CI workflow?",
+			Hint:    "GitHub Actions: build on every pull request, and on the default branch.",
+			Default: true,
+			Apply:   func(a *scaffold.Answers, v bool) { a.CI = v },
+		})
+	}
+
 	if meta.AsksPackage {
 		steps = append(steps, &TextStep{
 			Prompt: "Package name?",

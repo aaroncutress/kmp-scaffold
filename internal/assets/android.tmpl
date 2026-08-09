@@ -121,10 +121,12 @@ dependencies {
 {{- if .Spec.HasPack "ble" }}
     implementation(libs.kable)
 {{- end }}
+{{- if .Spec.Tests }}
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.testExt.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+{{- end }}
 }
 {{end}}
 
@@ -998,6 +1000,28 @@ class DialogSceneStrategy<T : Any> : SceneStrategy<T> {
             metadata { put(PropertiesKey, properties) }
 
         private object PropertiesKey : NavMetadataKey<DialogProperties>
+    }
+}
+{{end}}
+
+
+{{define "android/ExampleUnitTest.kt"}}
+package {{ .Spec.Package }}
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+/**
+ * A local unit test, run on the JVM by `./gradlew :androidApp:test`.
+ *
+ * This is the place for anything that does not need a device. Logic shared with
+ * iOS belongs in sharedLogic's commonTest instead, where both platforms run it.
+ */
+class ExampleUnitTest {
+
+    @Test
+    fun `arithmetic still works`() {
+        assertEquals(4, 2 + 2)
     }
 }
 {{end}}

@@ -192,12 +192,25 @@ func hasIdentity(dir string) bool {
 }
 
 func run(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append(gitConfig(), args...)...)
 	cmd.Dir = dir
 	// A credential or editor prompt would hang a run that has no terminal.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_EDITOR=true")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// gitConfig is the configuration every git invocation here runs with.
+//
+// core.longpaths lets Git for Windows use the APIs that are not capped at 260
+// characters. A generated project nests a Kotlin package under several source
+// directories, so a project in a deep enough place can exceed that before git
+// has added anything of its own. The setting does not exist off Windows.
+func gitConfig() []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	return []string{"-c", "core.longpaths=true"}
 }
 
 func firstLine(s string) string {

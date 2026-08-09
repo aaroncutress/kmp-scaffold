@@ -1,6 +1,8 @@
 package filetmpl
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -38,8 +41,21 @@ func (r Ref) Slug() string {
 	return path.Join(safeComponent(r.Host), safeComponent(r.Owner), safeComponent(r.Repo))
 }
 
+// maxComponent bounds one path component of a cache key.
+//
+// Windows refuses a path over 260 characters unless every tool in the chain
+// opts out, and git writes deep paths of its own inside .git - an object pack's
+// .keep file is another 60 on top of whatever it was given. A key that embeds
+// an entire source path can therefore blow the limit before git has started.
+//
+// A file:// ref is what does it: its "owner" is the whole parent directory,
+// with the separators replaced. github:owner/repo is nowhere near this, so an
+// ordinary cache key is unaffected by the bound.
+const maxComponent = 40
+
 // safeComponent replaces the characters Windows forbids in a path component,
-// and trims the trailing dots and spaces it also refuses.
+// trims the trailing dots and spaces it also refuses, and keeps the result
+// short enough to be part of a path Windows will accept.
 func safeComponent(s string) string {
 	s = strings.Map(func(r rune) rune {
 		if r < 0x20 || strings.ContainsRune(`<>:"/\|?*`, r) {
@@ -50,6 +66,14 @@ func safeComponent(s string) string {
 	s = strings.TrimRight(s, ". ")
 	if s == "" {
 		return "_"
+	}
+
+	// Truncating alone would let two different sources share a cache entry, so
+	// what is kept is the distinctive tail plus a hash of the whole.
+	if runes := []rune(s); len(runes) > maxComponent {
+		sum := sha256.Sum256([]byte(s))
+		const hash = 8
+		s = string(runes[len(runes)-(maxComponent-hash-1):]) + "-" + hex.EncodeToString(sum[:])[:hash]
 	}
 	return s
 }
@@ -448,12 +472,25 @@ func Forget(ref Ref) error {
 }
 
 func runGit(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append(gitConfig(), args...)...)
 	cmd.Dir = dir
 	// A prompt would hang a non-interactive run forever; failing is better.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// gitConfig is the configuration every git invocation here runs with.
+//
+// core.longpaths lets Git for Windows use the APIs that are not capped at 260
+// characters. A cache key is bounded above, but the paths git creates inside
+// .git are its own business and can be long wherever the repository sits.
+// The setting does not exist off Windows, so it is not passed there.
+func gitConfig() []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	return []string{"-c", "core.longpaths=true"}
 }
 
 // gitDetail appends git's own message, which usually says exactly what went

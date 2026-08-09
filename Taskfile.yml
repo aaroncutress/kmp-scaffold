@@ -1,0 +1,151 @@
+# Run `task` for the list, `task <name>` to run one.
+#
+# Everything CI does is a task in here, so a green build means the same commands
+# ran that you can run locally.
+version: "3"
+
+vars:
+  BINARY: kmp-scaffold
+  # The version stamped into the binary, and reported by `kmp-scaffold version`.
+  # A tagged build gets the tag; anything else gets a description of where it
+  # sits relative to one.
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  LDFLAGS: -s -w -X github.com/aaroncutress/kmp-scaffold/internal/cli.Version={{.VERSION}}
+  # Every platform a release is built for. Pure Go, no cgo, so these all
+  # cross-compile from one machine.
+  PLATFORMS: >-
+    linux/amd64 linux/arm64
+    darwin/amd64 darwin/arm64
+    windows/amd64 windows/arm64
+
+tasks:
+  default:
+    desc: List the tasks
+    silent: true
+    cmds:
+      - task --list
+
+  build:
+    desc: Build ./{{.BINARY}}
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BINARY}} .
+    sources:
+      - "**/*.go"
+      - "**/*.tmpl"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BINARY}}"
+
+  install:
+    desc: Install into $GOPATH/bin
+    cmds:
+      - go install -ldflags "{{.LDFLAGS}}" .
+
+  run:
+    desc: 'Build and run, e.g. task run -- new my-app --yes'
+    cmds:
+      - task: build
+      - ./{{.BINARY}} {{.CLI_ARGS}}
+
+  test:
+    desc: Run the tests
+    cmds:
+      - go test ./... {{.CLI_ARGS}}
+
+  test:race:
+    desc: Run the tests with the race detector
+    cmds:
+      - go test -race ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: Format every file
+    cmds:
+      - gofmt -w .
+
+  fmt:check:
+    desc: Fail if anything needs formatting
+    silent: true
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "gofmt needed on:"
+          echo "$unformatted"
+          exit 1
+        fi
+
+  tidy:
+    desc: Tidy go.mod, and fail if that changed anything
+    cmds:
+      - go mod tidy
+      - git diff --exit-code go.mod go.sum
+
+  check:
+    desc: What CI runs - vet, formatting and the tests
+    cmds:
+      - task: vet
+      - task: fmt:check
+      - task: test
+
+  golden:
+    desc: Re-record the golden projects after an intended output change
+    cmds:
+      - go test ./internal/kmp -run TestGolden -update
+      - git --no-pager diff --stat internal/kmp/testdata
+
+  dist:
+    desc: Cross-compile release archives into dist/
+    deps: [clean:dist]
+    silent: true
+    cmds:
+      - mkdir -p dist
+      - echo "Building {{.VERSION}}..."
+      - for: { var: PLATFORMS }
+        cmd: |
+          set -eu
+          platform='{{.ITEM}}'
+          os="${platform%/*}"
+          arch="${platform#*/}"
+
+          name='{{.BINARY}}_{{.VERSION}}_'"${os}_${arch}"
+          binary='{{.BINARY}}'
+          [ "$os" = windows ] && binary="$binary.exe"
+
+          mkdir -p "dist/$name"
+          GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+            go build -trimpath -ldflags '{{.LDFLAGS}}' -o "dist/$name/$binary" .
+          cp README.md "dist/$name/"
+          if [ -f LICENSE ]; then cp LICENSE "dist/$name/"; fi
+
+          if [ "$os" = windows ]; then
+            (cd dist && zip -qr "$name.zip" "$name")
+          else
+            (cd dist && tar -czf "$name.tar.gz" "$name")
+          fi
+          rm -rf "dist/$name"
+          echo "  $name"
+      # One checksum file over the archives - and only the archives, or it
+      # would end up hashing itself.
+      - cmd: |
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt 2>/dev/null ||
+            shasum -a 256 *.tar.gz *.zip > checksums.txt
+      - echo && ls -1 dist
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -f {{.BINARY}}
+      - task: clean:dist
+
+  clean:dist:
+    internal: true
+    cmds:
+      - rm -rf dist

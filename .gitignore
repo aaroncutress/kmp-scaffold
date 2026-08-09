@@ -1,3 +1,7 @@
 /kmp-scaffold
 *.exe
 .DS_Store
+/dist/
+
+# Task's own build-state cache.
+/.task/

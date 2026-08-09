@@ -366,7 +366,7 @@ implement templates**. They register themselves from their own `init()`.
 ## Testing a change
 
 ```bash
-make check     # vet, gofmt, tests
+task check     # vet, gofmt, tests
 ```
 
 `internal/kmp/generate_test.go` generates complete projects offline into
@@ -384,5 +384,5 @@ output is *meant* to change, read the diff, satisfy yourself that every line of
 it was intended, then re-run with `-update`:
 
 ```bash
-go test ./internal/kmp -run TestGolden -update
+task golden
 ```

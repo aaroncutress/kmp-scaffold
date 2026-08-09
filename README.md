@@ -56,7 +56,9 @@ already in place:
 
 ## Install
 
-Requires **Go 1.26** or newer.
+Download a build for your platform from
+[the latest release](https://github.com/aaroncutress/kmp-scaffold/releases/latest),
+or with Go 1.26 or newer:
 
 ```bash
 go install github.com/aaroncutress/kmp-scaffold@latest
@@ -67,7 +69,7 @@ Or build from a clone:
 ```bash
 git clone https://github.com/aaroncutress/kmp-scaffold
 cd kmp-scaffold
-make install          # or: go build -o kmp-scaffold .
+task install          # or: go build -o kmp-scaffold .
 ```
 
 ## Quick start
@@ -139,11 +141,19 @@ resolve on their newest track, because there is nothing else to resolve to.
 
 ## Development
 
+Tasks are in [`Taskfile.yml`](Taskfile.yml), run with
+[Task](https://taskfile.dev). `task` on its own lists them.
+
 ```bash
-make test      # go test ./...
-make check     # vet, gofmt and tests
-make build     # ./kmp-scaffold
+task check     # vet, gofmt and the tests - what CI runs
+task build     # ./kmp-scaffold
+task run -- new my-app --yes
+task dist      # cross-compile release archives into dist/
 ```
+
+Nothing in there needs Task, though: every task is a `go` command you can run
+by hand. CI installs Task and runs `task check`, so a green build means those
+exact commands passed.
 
 The generator has no hidden state: `go test ./internal/kmp` builds complete
 projects offline into temporary directories and asserts on the output, so a
@@ -154,5 +164,5 @@ output is *meant* to change, read the diff, satisfy yourself that every line of
 it was intended, then re-run with `-update`:
 
 ```bash
-go test ./internal/kmp -run TestGolden -update
+task golden
 ```

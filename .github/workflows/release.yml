@@ -1,0 +1,71 @@
+name: Release
+
+# Tag a commit to release it:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The tag is what `kmp-scaffold version` reports, because the build stamps it in
+# from `git describe`.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and publish
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          # Unshallow, or `git describe` cannot see the tag it is building.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.52.0
+
+      # Nothing is published that does not pass its own tests.
+      - name: Check
+        run: task check
+
+      - name: Build the archives
+        run: task dist
+
+      # The version is stamped in at build time, so a mismatch here would mean
+      # shipping a binary that lies about which release it is.
+      - name: Verify the version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          tar -xzf dist/*_linux_amd64.tar.gz -C /tmp
+          built=$(/tmp/kmp-scaffold_*_linux_amd64/kmp-scaffold version | awk '{print $2}')
+          echo "tag $TAG, binary reports $built"
+          if [ "$built" != "$TAG" ]; then
+            echo "the binary reports a different version than the tag being released"
+            exit 1
+          fi
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            dist/*.tar.gz dist/*.zip dist/checksums.txt \
+            --title "$TAG" \
+            --generate-notes \
+            --verify-tag

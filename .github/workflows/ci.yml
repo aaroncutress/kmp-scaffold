@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a branch makes the run in flight for it pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# A pull request from a branch in this repository has already been built by the
+# push that created it, so every job below skips that duplicate. A fork pull
+# request has had no push here, so it still runs.
+
+jobs:
+  check:
+    name: Check on ${{ matrix.os }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is where this is developed; macOS is where most of its users
+        # are, since the generated projects have an iOS side.
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.52.0
+
+      # The same command that is run locally, so a green build here means what
+      # it looks like it means.
+      - name: Check
+        run: task check
+
+  # The tool runs on Windows even though its own test suite makes Unix
+  # assumptions about paths and file modes, so Windows gets a compile and a vet
+  # rather than being left out entirely.
+  windows:
+    name: Build on windows
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go build ./...
+      - run: go vet ./...
+
+  # A release cross-compiles from one machine, so that has to keep working.
+  dist:
+    name: Cross-compile
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Unshallow, or `git describe` has no tags to describe against.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.52.0
+
+      - run: task dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7

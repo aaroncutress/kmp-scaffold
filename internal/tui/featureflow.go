@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/aaroncutress/kmp-scaffold/internal/generator"
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
 )
 
@@ -14,6 +15,7 @@ type FeatureDraft struct {
 	Name         string
 	Android      bool
 	Shared       bool
+	IOS          bool
 	Presentation string
 	RootTab      bool
 }
@@ -59,16 +61,34 @@ func FeatureFlow(spec model.Spec, manifest model.Manifest, initial FeatureDraft)
 					android.Disabled = true
 					android.DisabledNote = "this project has no Android app"
 				}
+				ios := Option{
+					ID:    "ios",
+					Label: "iOS feature target",
+					Desc:  "A Swift target with its route in CoreNavigation, wired into the Features package and the coordinator.",
+				}
+				switch {
+				case !spec.IOS:
+					ios.Disabled = true
+					ios.DisabledNote = "this project has no iOS app"
+				case !generator.SupportsFeatures(generator.KindIOS, spec.IOSLayout):
+					ios.Disabled = true
+					ios.DisabledNote = "the " + spec.IOSLayout + " layout has a single entry point, so it has no feature targets"
+				}
+
 				return []Option{
 					android,
+					ios,
 					{ID: "shared", Label: "Shared logic",
-						Desc: "Repository, ViewModel and Koin module in sharedLogic, added to the DI graph."},
+						Desc: "Repository, ViewModel and Koin module in sharedLogic, used by both platforms."},
 				}
 			},
 			Current: func(model.Spec) []string {
 				var out []string
 				if draft.Android {
 					out = append(out, "android")
+				}
+				if draft.IOS {
+					out = append(out, "ios")
 				}
 				if draft.Shared {
 					out = append(out, "shared")
@@ -77,14 +97,15 @@ func FeatureFlow(spec model.Spec, manifest model.Manifest, initial FeatureDraft)
 			},
 			Apply: func(_ *model.Spec, ids []string) {
 				draft.Android = model.Has(ids, "android")
+				draft.IOS = model.Has(ids, "ios")
 				draft.Shared = model.Has(ids, "shared")
 			},
 		},
 
 		&SelectStep{
 			Prompt: "How does this screen appear?",
-			Hint:   "This sets the route's Presentation, which decides which back stack it lands on.",
-			SkipIf: func(model.Spec) bool { return !draft.Android },
+			Hint:   "Sets the Android route's Presentation, and where the iOS destination is registered.",
+			SkipIf: func(model.Spec) bool { return !draft.Android && !draft.IOS },
 			Options: func(spec model.Spec) []Option {
 				opts := []Option{
 					{ID: "above-nav", Label: "Full screen",
@@ -172,6 +193,16 @@ func (s *FeatureReviewStep) View(spec model.Spec, width int) string {
 				fmt.Sprintf("core/ui/src/main/kotlin/%s/core/ui/components/Navigation.kt", pkgPath))
 		}
 	}
+	if d.IOS {
+		created = append(created,
+			fmt.Sprintf("iosApp/Packages/Features/Sources/CoreNavigation/%sRoute.swift", pascal),
+			fmt.Sprintf("iosApp/Packages/Features/Sources/%s/%sScreen.swift", pascal, pascal),
+			fmt.Sprintf("iosApp/Packages/Features/Sources/%s/%sDestination.swift", pascal, pascal),
+		)
+		edited = append(edited,
+			"iosApp/Packages/Features/Package.swift",
+			"iosApp/iosApp/App/AppCoordinator.swift")
+	}
 	if d.Shared {
 		created = append(created,
 			fmt.Sprintf("sharedLogic/.../feature/%s/domain/%sRepository.kt", pkg, pascal),
@@ -202,7 +233,7 @@ func (s *FeatureReviewStep) View(spec model.Spec, width int) string {
 
 func presentationLabel(d *FeatureDraft) string {
 	switch {
-	case !d.Android:
+	case !d.Android && !d.IOS:
 		return "shared logic only"
 	case d.RootTab:
 		return "root tab in the navigation shell"

@@ -80,7 +80,8 @@ func TestGenerateFullProject(t *testing.T) {
 		"feature/home/api/src/main/kotlin/io/kontour/tunesic/feature/home/api/HomeRoute.kt",
 		"feature/home/impl/src/main/kotlin/io/kontour/tunesic/feature/home/impl/HomeScreen.kt",
 		"iosApp/iosApp.xcodeproj/project.pbxproj",
-		"iosApp/iosApp/iOSApp.swift",
+		"iosApp/iosApp/App/iOSApp.swift",
+		"iosApp/Packages/Features/Package.swift",
 		model.ManifestFile,
 	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
@@ -278,7 +279,8 @@ func TestMinimalProjectSkipsOptionalFiles(t *testing.T) {
 	root := generate(t, spec)
 
 	for _, rel := range []string{
-		"iosApp/iosApp/iOSApp.swift",
+		"iosApp/iosApp/App/iOSApp.swift",
+		"iosApp/Packages/Features/Package.swift",
 		"secrets.properties.template",
 		"sharedLogic/src/commonMain/kotlin/io/kontour/tunesic/core/database/AppDatabase.kt",
 		"sharedLogic/src/commonMain/kotlin/io/kontour/tunesic/core/util/NetworkObserver.kt",
@@ -354,5 +356,261 @@ func TestLayoutRegistry(t *testing.T) {
 	}
 	if _, err := Get(KindIOS, "does-not-exist"); err == nil {
 		t.Error("an unknown layout should be an error")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The modular iOS layout
+// ---------------------------------------------------------------------------
+
+func iosFeaturesSpec(dir string) model.Spec {
+	spec := testSpec(dir)
+	spec.IOSLayout = IOSFeaturesLayout
+	spec.RootTabs = []string{"Home", "Library"}
+	catalog.Normalise(&spec)
+	return spec
+}
+
+func TestIOSFeaturesLayoutGeneratesThePackage(t *testing.T) {
+	root := generate(t, iosFeaturesSpec("tunesic"))
+
+	for _, rel := range []string{
+		"iosApp/Packages/Features/Package.swift",
+		"iosApp/Packages/Features/Sources/CoreNavigation/Resolve.swift",
+		"iosApp/Packages/Features/Sources/CoreNavigation/HomeRoute.swift",
+		"iosApp/Packages/Features/Sources/CoreNavigation/LibraryRoute.swift",
+		"iosApp/Packages/Features/Sources/Home/HomeScreen.swift",
+		"iosApp/Packages/Features/Sources/Home/HomeDestination.swift",
+		"iosApp/Packages/Features/Sources/Library/LibraryScreen.swift",
+		"iosApp/iosApp/App/iOSApp.swift",
+		"iosApp/iosApp/App/AppCoordinator.swift",
+		"iosApp/build-framework.sh",
+		"iosApp/README.md",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("expected %s to exist: %v", rel, err)
+		}
+	}
+
+	// The old single-file layout's entry point must not linger.
+	if _, err := os.Stat(filepath.Join(root, "iosApp/iosApp/ContentView.swift")); err == nil {
+		t.Error("ContentView.swift belongs to the single-entry-point layout")
+	}
+}
+
+func TestIOSFeaturesPackageDeclaresEveryTarget(t *testing.T) {
+	root := generate(t, iosFeaturesSpec("tunesic"))
+	pkg := mustRead(t, root, "iosApp/Packages/Features/Package.swift")
+
+	for _, want := range []string{
+		`.library(name: "Home", targets: ["Home"])`,
+		`.library(name: "Library", targets: ["Library"])`,
+		`.target(name: "Home", dependencies: featureDependencies)`,
+		`.target(name: "Library", dependencies: featureDependencies)`,
+		`.binaryTarget(`,
+		`path: "../../Frameworks/SharedLogic.xcframework"`,
+		`.library(name: "AppFeatures", targets: [`,
+	} {
+		if !strings.Contains(pkg, want) {
+			t.Errorf("Package.swift is missing %q", want)
+		}
+	}
+
+	// Only the umbrella product is linked by Xcode, so a new feature never has
+	// to touch project.pbxproj - which Xcode rewrites on save.
+	pbx := mustRead(t, root, "iosApp/iosApp.xcodeproj/project.pbxproj")
+	if !strings.Contains(pbx, "productName = AppFeatures") {
+		t.Error("the Xcode project does not link the AppFeatures product")
+	}
+	if strings.Contains(pbx, "productName = Home") {
+		t.Error("the Xcode project links an individual feature, which add-feature cannot maintain")
+	}
+}
+
+func TestIOSFeaturesCoordinatorCoversEveryTab(t *testing.T) {
+	root := generate(t, iosFeaturesSpec("tunesic"))
+	coordinator := mustRead(t, root, "iosApp/iosApp/App/AppCoordinator.swift")
+
+	for _, want := range []string{
+		"import Home", "import Library", "import CoreNavigation",
+		"case home", "case library",
+		"@State private var homePath = NavigationPath()",
+		"@State private var libraryPath = NavigationPath()",
+		".homeDestination(for: HomeRoute())",
+		".libraryDestination(for: LibraryRoute())",
+		`.tabItem { Label("Home", systemImage: "house") }`,
+	} {
+		if !strings.Contains(coordinator, want) {
+			t.Errorf("AppCoordinator.swift is missing %q", want)
+		}
+	}
+
+	// Each tab gets its own path, which is what preserves per-tab history.
+	if strings.Count(coordinator, "NavigationStack(path:") != 2 {
+		t.Errorf("expected one NavigationStack per tab:\n%s", coordinator)
+	}
+}
+
+func TestIOSFeaturesProjectHasEveryAnchor(t *testing.T) {
+	root := generate(t, iosFeaturesSpec("tunesic"))
+
+	cases := []struct{ rel, anchor string }{
+		{"iosApp/Packages/Features/Package.swift", "kmp-scaffold:ios-products"},
+		{"iosApp/Packages/Features/Package.swift", "kmp-scaffold:ios-app-features"},
+		{"iosApp/Packages/Features/Package.swift", "kmp-scaffold:ios-targets"},
+		{"iosApp/iosApp/App/AppCoordinator.swift", "kmp-scaffold:ios-tab-cases"},
+		{"iosApp/iosApp/App/AppCoordinator.swift", "kmp-scaffold:ios-tab-paths"},
+		{"iosApp/iosApp/App/AppCoordinator.swift", "kmp-scaffold:ios-tabs"},
+		{"iosApp/iosApp/App/AppCoordinator.swift", "kmp-scaffold:ios-destinations"},
+	}
+	for _, c := range cases {
+		if !strings.Contains(mustRead(t, root, c.rel), c.anchor) {
+			t.Errorf("%s is missing the %s anchor", c.rel, c.anchor)
+		}
+	}
+}
+
+// The shared module has to publish an XCFramework for SPM to consume, but only
+// for this layout - the single-entry-point one links the framework directly.
+func TestXCFrameworkOnlyForTheModularLayout(t *testing.T) {
+	modular := mustRead(t, generate(t, iosFeaturesSpec("tunesic")), "sharedLogic/build.gradle.kts")
+	if !strings.Contains(modular, "XCFramework(\"SharedLogic\")") ||
+		!strings.Contains(modular, "xcframework.add(this)") {
+		t.Errorf("the modular layout needs an XCFramework:\n%s", modular)
+	}
+
+	simple := testSpec("tunesic")
+	simple.IOSLayout = "swiftui-simple"
+	catalog.Normalise(&simple)
+	plain := mustRead(t, generate(t, simple), "sharedLogic/build.gradle.kts")
+	if strings.Contains(plain, "XCFramework") {
+		t.Error("the single-entry-point layout should not build an XCFramework")
+	}
+}
+
+func TestAddIOSFeatureWiresPackageAndCoordinator(t *testing.T) {
+	root := generate(t, iosFeaturesSpec("tunesic"))
+	manifest, _, err := model.LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writer := render.NewWriter(root, false, false)
+	report, err := AddFeature(manifest, root, FeatureRequest{
+		Name: "now-playing", Android: true, Shared: true, IOS: true, Presentation: "above-nav",
+	}, "test", writer, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Warnings) > 0 {
+		t.Errorf("unexpected warnings: %v", report.Warnings)
+	}
+
+	// A kebab-case name becomes a PascalCase Swift module.
+	for _, rel := range []string{
+		"iosApp/Packages/Features/Sources/CoreNavigation/NowPlayingRoute.swift",
+		"iosApp/Packages/Features/Sources/NowPlaying/NowPlayingScreen.swift",
+		"iosApp/Packages/Features/Sources/NowPlaying/NowPlayingDestination.swift",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("expected %s to exist: %v", rel, err)
+		}
+	}
+
+	pkg := mustRead(t, root, "iosApp/Packages/Features/Package.swift")
+	for _, want := range []string{
+		`.library(name: "NowPlaying", targets: ["NowPlaying"]),`,
+		`.target(name: "NowPlaying", dependencies: featureDependencies),`,
+		`"NowPlaying",`,
+	} {
+		if !strings.Contains(pkg, want) {
+			t.Errorf("Package.swift is missing %q", want)
+		}
+	}
+
+	coordinator := mustRead(t, root, "iosApp/iosApp/App/AppCoordinator.swift")
+	if !strings.Contains(coordinator, "import NowPlaying") {
+		t.Error("the coordinator is missing the new module's import")
+	}
+	if !strings.Contains(coordinator, ".navigationDestination(for: NowPlayingRoute.self) { route in") {
+		t.Errorf("the pushed destination was not registered:\n%s", coordinator)
+	}
+	// A pushed screen goes on the shared modifier, not into the tab list.
+	if strings.Contains(coordinator, ".tag(AppTab.nowPlaying)") {
+		t.Error("a pushed screen should not become a tab")
+	}
+
+	// A feature paired with shared logic drives its screen from the shared ViewModel.
+	screen := mustRead(t, root, "iosApp/Packages/Features/Sources/NowPlaying/NowPlayingScreen.swift")
+	if !strings.Contains(screen, "resolveShared(NowPlayingViewModel.self)") {
+		t.Errorf("the screen does not resolve its shared ViewModel:\n%s", screen)
+	}
+
+	if f := manifest.FindFeature("now-playing"); f == nil || !f.IOS {
+		t.Errorf("the manifest does not record the iOS half: %+v", f)
+	}
+}
+
+func TestAddIOSRootTabJoinsTheTabView(t *testing.T) {
+	root := generate(t, iosFeaturesSpec("tunesic"))
+	manifest, _, err := model.LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writer := render.NewWriter(root, false, false)
+	if _, err := AddFeature(manifest, root, FeatureRequest{
+		Name: "explore", Android: true, IOS: true, Presentation: "shell", RootTab: true,
+	}, "test", writer, false); err != nil {
+		t.Fatal(err)
+	}
+
+	coordinator := mustRead(t, root, "iosApp/iosApp/App/AppCoordinator.swift")
+	for _, want := range []string{
+		"case explore",
+		"@State private var explorePath = NavigationPath()",
+		"NavigationStack(path: $explorePath) {",
+		".exploreDestination(for: ExploreRoute())",
+		`.tabItem { Label("Explore", systemImage: "safari") }`,
+		".tag(AppTab.explore)",
+	} {
+		if !strings.Contains(coordinator, want) {
+			t.Errorf("AppCoordinator.swift is missing %q:\n%s", want, coordinator)
+		}
+	}
+
+	// The inserted block keeps its nesting.
+	if !strings.Contains(coordinator, "\n            NavigationStack(path: $explorePath) {\n                EmptyView()\n") {
+		t.Errorf("the inserted tab lost its shape:\n%s", coordinator)
+	}
+}
+
+func TestAddIOSFeatureIsRejectedOnTheSimpleLayout(t *testing.T) {
+	spec := testSpec("tunesic")
+	spec.IOSLayout = "swiftui-simple"
+	catalog.Normalise(&spec)
+	root := generate(t, spec)
+
+	manifest, _, err := model.LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writer := render.NewWriter(root, false, false)
+	_, err = AddFeature(manifest, root, FeatureRequest{
+		Name: "billing", IOS: true, Presentation: "above-nav",
+	}, "test", writer, false)
+	if err == nil {
+		t.Fatal("expected an error: the single-entry-point layout has no feature targets")
+	}
+	if !strings.Contains(err.Error(), "single entry point") {
+		t.Errorf("the error should explain why: %v", err)
+	}
+
+	if SupportsFeatures(KindIOS, "swiftui-simple") {
+		t.Error("SupportsFeatures should be false for the single-entry-point layout")
+	}
+	if !SupportsFeatures(KindIOS, IOSFeaturesLayout) {
+		t.Error("SupportsFeatures should be true for the modular layout")
 	}
 }

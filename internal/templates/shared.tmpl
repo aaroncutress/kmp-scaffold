@@ -3,6 +3,9 @@
 import com.codingfeline.buildkonfig.compiler.FieldSpec
 {{- end }}
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+{{- if .UsesIOSFeatures }}
+import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
+{{- end }}
 {{- if .Spec.HasPack "secrets" }}
 import java.util.Properties
 {{- end }}
@@ -71,6 +74,24 @@ kotlin {
     }
 {{- end }}
 {{- if .Spec.IOS }}
+{{- if .UsesIOSFeatures }}
+
+    // The iOS app consumes this through Swift Package Manager, which needs a
+    // single XCFramework rather than a per-architecture framework. Assemble it
+    // with iosApp/build-framework.sh (the Xcode build phase runs that too).
+    val xcframework = XCFramework("{{ .Spec.FrameworkName }}")
+
+    listOf(
+        iosArm64(),
+        iosSimulatorArm64()
+    ).forEach { iosTarget ->
+        iosTarget.binaries.framework {
+            baseName = "{{ .Spec.FrameworkName }}"
+            isStatic = true
+            xcframework.add(this)
+        }
+    }
+{{- else }}
 
     listOf(
         iosArm64(),
@@ -81,6 +102,7 @@ kotlin {
             isStatic = true
         }
     }
+{{- end }}
 {{- end }}
 
     sourceSets {

@@ -92,6 +92,29 @@ The library is probably declared in two source sets — for example in both
 `commonMain` and `androidMain`. A multiplatform artifact belongs in `commonMain`
 only; the platform variant is selected automatically.
 
+### "Missing binary target 'SharedLogic'" / the package will not resolve
+
+The XCFramework has not been built yet. Swift Package Manager resolves that path
+before Xcode runs any build phase, so it has to exist first:
+
+```bash
+./iosApp/build-framework.sh
+```
+
+Then **File → Packages → Reset Package Caches** in Xcode. This only applies to
+the modular iOS layout; see [iOS architecture](ios-architecture.md#the-xcframework).
+
+### Swift cannot see a symbol I just added to sharedLogic
+
+Same cause. Rebuild the framework and reset the package caches:
+
+```bash
+./iosApp/build-framework.sh
+```
+
+The build phase keeps the framework current for ordinary edits, but a *new*
+exported symbol needs SPM to re-read the module interface.
+
 ### The iOS build cannot find the shared framework
 
 The Xcode project runs `./gradlew :sharedLogic:embedAndSignAppleFrameworkForXcode`
@@ -103,7 +126,8 @@ in a build phase. If it fails:
   building for a device. The simulator does not need it.
 - Confirm you are on an ARM Mac. The generated project targets `iosArm64` and
   `iosSimulatorArm64`; add `iosX64()` to `sharedLogic/build.gradle.kts` for an
-  Intel simulator.
+  Intel simulator (and add it to the `XCFramework` too, if you are on the
+  modular layout).
 
 ### The iOS framework will not link after a Kotlin upgrade
 
@@ -119,6 +143,15 @@ when it pins a SKIE version against a newer Kotlin:
 Either drop Kotlin back one release in `libs.versions.toml`, or remove the SKIE
 plugin from `sharedLogic/build.gradle.kts` — Swift interop still works, it is
 just less idiomatic.
+
+### `add feature` says the iOS layout has no feature targets
+
+The project was generated with `swiftui-simple`, which has a single entry point
+and nothing to wire a target into. Either add the view to the app target by
+hand, or move to the modular layout — generate a throwaway project with
+`--ios-layout swiftui-features`, copy `iosApp/Packages/` and
+`iosApp/iosApp/App/` across, and set `"iosLayout": "swiftui-features"` in
+`.kmp-scaffold.json`.
 
 ### A Kotlin function is not visible from Swift
 

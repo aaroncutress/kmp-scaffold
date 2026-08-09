@@ -25,7 +25,8 @@ type Tab struct {
 	Pascal string // "Home"
 	Camel  string // "home"
 	Pkg    string // "home"
-	Icon   string // Material Symbols icon name
+	Icon   string // Material Symbols icon name, for Android
+	Symbol string // SF Symbol name, for iOS
 	First  bool
 }
 
@@ -39,9 +40,12 @@ type FeatureCtx struct {
 	RootTab      bool
 	Android      bool
 	Shared       bool
+	IOS          bool
 	// ProjectAccessor is the type-safe Gradle accessor segment for the module,
 	// which camel-cases kebab names: feature/firmware-update -> firmwareUpdate.
 	ProjectAccessor string
+	// Symbol is the SF Symbol used when this feature is an iOS tab.
+	Symbol string
 }
 
 // PresentationConst maps the presentation choice onto the Kotlin enum entry.
@@ -216,22 +220,61 @@ var DefaultTabIcons = map[string]string{
 	"activity":      "Timeline",
 }
 
+// DefaultSFSymbols maps common tab names onto SF Symbols, the iOS equivalent of
+// DefaultTabIcons. Anything unrecognised falls back to a generic symbol.
+var DefaultSFSymbols = map[string]string{
+	"home":          "house",
+	"settings":      "gearshape",
+	"profile":       "person.crop.circle",
+	"search":        "magnifyingglass",
+	"library":       "books.vertical",
+	"collection":    "square.stack",
+	"store":         "cart",
+	"shop":          "bag",
+	"more":          "ellipsis",
+	"feed":          "list.bullet.rectangle",
+	"explore":       "safari",
+	"dashboard":     "square.grid.2x2",
+	"notifications": "bell",
+	"messages":      "bubble.left.and.bubble.right",
+	"favourites":    "heart",
+	"favorites":     "heart",
+	"map":           "map",
+	"calendar":      "calendar",
+	"account":       "person.crop.circle",
+	"stats":         "chart.bar",
+	"activity":      "waveform.path.ecg",
+}
+
+// TabIcon returns the Material Symbols name for a tab.
+func TabIcon(name string) string {
+	if icon, ok := DefaultTabIcons[name]; ok {
+		return icon
+	}
+	return "Widgets"
+}
+
+// TabSymbol returns the SF Symbol name for a tab.
+func TabSymbol(name string) string {
+	if symbol, ok := DefaultSFSymbols[name]; ok {
+		return symbol
+	}
+	return "square.grid.2x2"
+}
+
 // BuildTabs turns the user's tab labels into template-ready descriptors.
 func BuildTabs(labels []string) []Tab {
 	var out []Tab
 	for i, label := range labels {
 		name := model.Kebab(label)
-		icon, ok := DefaultTabIcons[name]
-		if !ok {
-			icon = "Widgets"
-		}
 		out = append(out, Tab{
 			Label:  label,
 			Name:   name,
 			Pascal: model.Pascal(label),
 			Camel:  model.Camel(label),
 			Pkg:    model.PackageSegment(label),
-			Icon:   icon,
+			Icon:   TabIcon(name),
+			Symbol: TabSymbol(name),
 			First:  i == 0,
 		})
 	}

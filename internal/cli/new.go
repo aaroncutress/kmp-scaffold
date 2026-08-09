@@ -270,7 +270,11 @@ func printNextSteps(spec model.Spec, root string) {
 	if spec.Android {
 		fmt.Println("  ./gradlew :androidApp:assembleDebug")
 	}
-	if spec.IOS && spec.IOSLayout != "none" {
+	if spec.IOS && spec.IOSLayout == generator.IOSFeaturesLayout {
+		fmt.Println("  ./iosApp/build-framework.sh                         " +
+			sMuted.Render("# on a Mac, before opening Xcode"))
+		fmt.Println("  open iosApp/iosApp.xcodeproj")
+	} else if spec.IOS && spec.IOSLayout != "none" {
 		fmt.Println("  open iosApp/iosApp.xcodeproj                        " +
 			sMuted.Render("# on a Mac"))
 	}

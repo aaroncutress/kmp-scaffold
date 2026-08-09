@@ -84,10 +84,11 @@ type Manifest struct {
 
 // Feature records a feature module added to the project.
 type Feature struct {
-	Name         string `json:"name"`         // kebab-case, e.g. "firmware-update"
-	Android      bool   `json:"android"`      // has feature/<name>/{api,impl}
-	Shared       bool   `json:"shared"`       // has sharedLogic feature package
-	Presentation string `json:"presentation"` // shell | above-nav | overlay | dialog
+	Name         string `json:"name"`          // kebab-case, e.g. "firmware-update"
+	Android      bool   `json:"android"`       // has feature/<name>/{api,impl}
+	Shared       bool   `json:"shared"`        // has sharedLogic feature package
+	IOS          bool   `json:"ios,omitempty"` // has a target in the iOS Features package
+	Presentation string `json:"presentation"`  // shell | above-nav | overlay | dialog
 	RootTab      bool   `json:"rootTab"`
 }
 
@@ -98,7 +99,7 @@ func Defaults() Spec {
 		Android:       true,
 		IOS:           true,
 		AndroidLayout: "nav3-shell",
-		IOSLayout:     "swiftui-simple",
+		IOSLayout:     "swiftui-features",
 		// SharedUtils, AndroidExtras and Packs are filled from the catalog by
 		// the caller, so a pack and the utility that depends on it cannot drift
 		// apart as the catalog changes.

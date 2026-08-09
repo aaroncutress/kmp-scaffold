@@ -14,8 +14,11 @@ my-app/
 ├── feature/<name>/api/          a feature's routes
 ├── feature/<name>/impl/         a feature's screens
 ├── androidApp/                  the composition root
-└── iosApp/                      the SwiftUI app
+└── iosApp/                      the SwiftUI app, and its Features package
 ```
+
+The iOS side has its own layout, mirroring the module split above — see
+[iOS architecture](ios-architecture.md).
 
 ## The dependency rule
 

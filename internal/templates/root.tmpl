@@ -178,6 +178,12 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+{{- if .UsesIOSFeatures }}
+
+# Built by iosApp/build-framework.sh from sharedLogic.
+iosApp/Frameworks/
+.swiftpm/
+{{- end }}
 {{- if .Spec.HasPack "secrets" }}
 secrets.properties
 {{- end }}

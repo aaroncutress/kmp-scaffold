@@ -190,3 +190,82 @@ func TestDryRunLeavesFileAlone(t *testing.T) {
 		t.Errorf("dry run reported %d insertion(s), want 1", n)
 	}
 }
+
+func TestInsertPreservesBlockShape(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "AppCoordinator.swift", `        TabView(selection: $selectedTab) {
+            NavigationStack(path: $homePath) {
+                EmptyView()
+            }
+
+            // kmp-scaffold:tabs
+        }
+`)
+
+	applier := NewApplier(root, false)
+	if err := applier.Apply(Edit{
+		Path:   "AppCoordinator.swift",
+		Anchor: "kmp-scaffold:tabs",
+		Lines: []string{
+			"NavigationStack(path: $billingPath) {",
+			"    EmptyView()",
+			"        .billingDestination(for: BillingRoute())",
+			"}",
+			`.tabItem { Label("Billing", systemImage: "creditcard") }`,
+			".tag(AppTab.billing)",
+			"",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := read(t, root, "AppCoordinator.swift")
+	// The block's own nesting survives, offset by the anchor's indentation.
+	for _, want := range []string{
+		"\n            NavigationStack(path: $billingPath) {\n",
+		"\n                EmptyView()\n",
+		"\n                    .billingDestination(for: BillingRoute())\n",
+		"\n            }\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in:\n%s", want, got)
+		}
+	}
+}
+
+// A block whose inner lines ("}", "EmptyView()") appear elsewhere must still be
+// recognised as already inserted on a second run.
+func TestBlockInsertionIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "AppCoordinator.swift", `        TabView {
+            NavigationStack(path: $homePath) {
+                EmptyView()
+            }
+            // kmp-scaffold:tabs
+        }
+`)
+
+	edit := Edit{
+		Path:   "AppCoordinator.swift",
+		Anchor: "kmp-scaffold:tabs",
+		Lines: []string{
+			"NavigationStack(path: $billingPath) {",
+			"    EmptyView()",
+			"}",
+		},
+	}
+
+	first := NewApplier(root, false)
+	if err := first.Apply(edit); err != nil {
+		t.Fatal(err)
+	}
+	after := read(t, root, "AppCoordinator.swift")
+
+	second := NewApplier(root, false)
+	if err := second.Apply(edit); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, root, "AppCoordinator.swift"); got != after {
+		t.Errorf("the block was inserted twice:\n%s", got)
+	}
+}

@@ -54,9 +54,10 @@ func normalise(b []byte) []byte {
 		lines[i] = strings.TrimRight(l, " \t\r")
 	}
 	out := strings.Join(lines, "\n")
-	// Collapse runs of 3+ blank lines into one blank line.
-	for strings.Contains(out, "\n\n\n\n") {
-		out = strings.ReplaceAll(out, "\n\n\n\n", "\n\n\n")
+	// Conditionals leave ragged gaps behind, so collapse any run of blank lines
+	// to a single one.
+	for strings.Contains(out, "\n\n\n") {
+		out = strings.ReplaceAll(out, "\n\n\n", "\n\n")
 	}
 	// A {{define}} block starts with the newline after the tag, so every
 	// rendered file would otherwise begin with a blank line.

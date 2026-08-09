@@ -37,6 +37,23 @@ const (
 	AnchorNavItems = "kmp-scaffold:nav-items"
 	// AnchorSharedModules is in sharedLogic's SharedModules.kt.
 	AnchorSharedModules = "kmp-scaffold:shared-modules"
+
+	// The iOS Features package and its coordinator.
+
+	// AnchorIOSProducts is the per-target product list in Package.swift.
+	AnchorIOSProducts = "kmp-scaffold:ios-products"
+	// AnchorIOSAppFeatures is the umbrella product the app target links.
+	AnchorIOSAppFeatures = "kmp-scaffold:ios-app-features"
+	// AnchorIOSTargets is the target list in Package.swift.
+	AnchorIOSTargets = "kmp-scaffold:ios-targets"
+	// AnchorIOSTabCases is the AppTab enum in AppCoordinator.swift.
+	AnchorIOSTabCases = "kmp-scaffold:ios-tab-cases"
+	// AnchorIOSTabPaths is the per-tab NavigationPath state.
+	AnchorIOSTabPaths = "kmp-scaffold:ios-tab-paths"
+	// AnchorIOSTabs is the TabView body.
+	AnchorIOSTabs = "kmp-scaffold:ios-tabs"
+	// AnchorIOSDestinations is the shared destination modifier every tab applies.
+	AnchorIOSDestinations = "kmp-scaffold:ios-destinations"
 )
 
 // Edit is one pending change to one file.
@@ -158,14 +175,35 @@ func insertBeforeAnchor(content, anchor string, lines []string) (string, int, bo
 		existing[strings.TrimSpace(l)] = true
 	}
 
+	// A multi-line insertion (a whole SwiftUI tab, say) carries its own nesting.
+	// Strip the block's common indent and re-apply the anchor's, so the inserted
+	// code keeps its shape wherever the anchor happens to sit.
+	base := commonIndent(lines)
+
+	// Duplicate detection is per block rather than per line: a block's inner
+	// lines ("}", "content") repeat all over a file, so only its first
+	// meaningful line decides whether it is already there.
+	if first := firstMeaningful(lines); first == "" || existing[first] {
+		return content, 0, true
+	}
+
 	var toInsert []string
+	blank := true
 	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed == "" || existing[trimmed] {
+		if strings.TrimSpace(l) == "" {
+			// Keep interior blank lines, drop leading and trailing ones.
+			if !blank {
+				toInsert = append(toInsert, "")
+			}
 			continue
 		}
-		existing[trimmed] = true
-		toInsert = append(toInsert, indent+trimmed)
+		blank = false
+		toInsert = append(toInsert, indent+strings.TrimPrefix(l, base))
+	}
+	// One trailing blank line is kept - that is how a caller asks for a gap
+	// between this block and whatever the anchor sits above - but no more.
+	for len(toInsert) > 1 && toInsert[len(toInsert)-1] == "" && toInsert[len(toInsert)-2] == "" {
+		toInsert = toInsert[:len(toInsert)-1]
 	}
 	if len(toInsert) == 0 {
 		return content, 0, true
@@ -231,6 +269,39 @@ func addImport(content, importLine string) (string, bool) {
 	out = append(out, imports...)
 	out = append(out, lines[last+1:]...)
 	return strings.Join(out, "\n"), true
+}
+
+// commonIndent returns the longest whitespace prefix shared by every non-blank
+// line, so a block can be re-indented without losing its internal structure.
+func commonIndent(lines []string) string {
+	common := ""
+	first := true
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		indent := leadingWhitespace(l)
+		if first {
+			common, first = indent, false
+			continue
+		}
+		for !strings.HasPrefix(indent, common) {
+			common = common[:len(common)-1]
+		}
+	}
+	return common
+}
+
+// firstMeaningful returns the first non-blank, non-comment line, trimmed.
+func firstMeaningful(lines []string) string {
+	for _, l := range lines {
+		t := strings.TrimSpace(l)
+		if t == "" || strings.HasPrefix(t, "//") {
+			continue
+		}
+		return t
+	}
+	return ""
 }
 
 func leadingWhitespace(s string) string {

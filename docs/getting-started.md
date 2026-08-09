@@ -70,9 +70,19 @@ the wizard will say so.
 
 ### 7. iOS layout
 
-`SwiftUI, single entry point` generates an Xcode project that links the
-`SharedLogic` framework and starts Koin at launch. `No iOS project files` still
-builds the framework — useful if you want to add the Xcode project yourself.
+- **SwiftUI, one target per feature** (default) — a local Swift package with a
+  target per feature, a shared `CoreNavigation` module for route payloads, and a
+  `TabView` giving each tab its own `NavigationPath`. This is the counterpart to
+  the Android `api`/`impl` split, and the one `kmp-scaffold add feature` can
+  extend. See [iOS architecture](ios-architecture.md).
+- **SwiftUI, single entry point** — one `ContentView.swift`. Fine for a small
+  app or a spike.
+- **No iOS project files** — still builds the framework; add the Xcode project
+  yourself later.
+
+The modular layout needs the shared framework as an XCFramework, so there is one
+extra step before the first Xcode build (`./iosApp/build-framework.sh`). The
+generator tells you, and so does `iosApp/README.md`.
 
 ### 8. Shared utilities
 
@@ -168,10 +178,19 @@ cp secrets.properties.template secrets.properties   # if you enabled secrets
 ./gradlew :androidApp:assembleDebug
 ```
 
-For iOS, open `iosApp/iosApp.xcodeproj` in Xcode and run. The Xcode project has
-a build phase that runs
-`./gradlew :sharedLogic:embedAndSignAppleFrameworkForXcode`, so the framework is
-rebuilt whenever you build the app — you never link a stale framework.
+For iOS on the modular layout:
+
+```bash
+./iosApp/build-framework.sh    # once, before the first Xcode build
+open iosApp/iosApp.xcodeproj
+```
+
+Swift Package Manager resolves the framework's path before Xcode runs any build
+phase, so it has to exist first. After that the app's "Build Kotlin Framework"
+phase keeps it current on every build.
+
+On the single-entry-point layout there is no bootstrap step: just open
+`iosApp/iosApp.xcodeproj` and run.
 
 ## Skipping the wizard
 

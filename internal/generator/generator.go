@@ -114,6 +114,18 @@ func Layouts(kind Kind) []Generator {
 	return out
 }
 
+// SupportsFeatures reports whether a registered layout can be extended by
+// `add feature`, so the wizard can grey out the choice rather than failing
+// halfway through.
+func SupportsFeatures(kind Kind, id string) bool {
+	g, err := Get(kind, id)
+	if err != nil {
+		return false
+	}
+	_, ok := g.(FeatureGenerator)
+	return ok
+}
+
 func availableIDs(kind Kind) string {
 	var ids []string
 	for _, g := range registry {

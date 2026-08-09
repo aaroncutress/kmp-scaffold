@@ -44,8 +44,11 @@ already in place:
   back stack, an adaptive shell (floating bar → rail → drawer as the window
   grows), bottom-sheet and dialog scene strategies, a Material 3 theme with
   design tokens, and one `api`/`impl` module pair per feature.
-- **`iosApp`** — a SwiftUI app that links the framework Gradle builds and starts
-  Koin at launch.
+- **`iosApp`** — a SwiftUI app in one of two shapes: a modular layout with a
+  local Swift package holding one target per feature and a shared
+  `CoreNavigation` module (the default, mirroring the Android module split), or
+  a single entry point for smaller apps. Both link the framework Gradle builds
+  and start Koin at launch.
 - **`gradle/libs.versions.toml`** — every version in one place, resolved against
   Maven Central, Google Maven and the Gradle release feed at the moment you
   generate, with compatibility rules applied (see
@@ -108,8 +111,10 @@ its full flag list.
   sheets and dialogs, and what gets wired where.
 - **[Libraries and versions](docs/libraries-and-versions.md)** — library packs,
   how version resolution works, release channels, and keeping a project current.
-- **[Extending kmp-scaffold](docs/extending.md)** — adding a new project layout
-  (an iOS feature-based structure, say), a library pack, or a shared utility.
+- **[iOS architecture](docs/ios-architecture.md)** — the modular Swift package
+  layout, how it maps onto the Android side, and the XCFramework it needs.
+- **[Extending kmp-scaffold](docs/extending.md)** — adding a new project layout,
+  a library pack, or a shared utility.
 - **[Troubleshooting](docs/troubleshooting.md)** — what to do when a build fails.
 
 ## How it decides versions

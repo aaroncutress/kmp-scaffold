@@ -5,9 +5,10 @@ cd my-app
 kmp-scaffold add feature
 ```
 
-The wizard asks four things: the name, whether you want the Android module, the
-shared logic, or both, and how the screen should appear. Then it shows you every
-file it will create and every file it will edit, before touching anything.
+The wizard asks three things: the name, which sides of the project it covers
+(Android, iOS, shared logic), and how the screen should appear. Then it shows
+you every file it will create and every file it will edit, before touching
+anything.
 
 Run it from anywhere inside the project — it finds the root by walking up to
 `.kmp-scaffold.json`.
@@ -32,7 +33,7 @@ people up when adding a module by hand.
 
 ## What gets created
 
-**Android module** (`--android-only` for just this):
+**Android module** (`--targets android` for just this):
 
 ```
 feature/<name>/api/build.gradle.kts
@@ -42,7 +43,15 @@ feature/<name>/impl/src/main/kotlin/…/impl/<Name>Navigation.kt
 feature/<name>/impl/src/main/kotlin/…/impl/<Name>Screen.kt
 ```
 
-**Shared logic** (`--shared-only` for just this):
+**iOS target** (modular iOS layout only):
+
+```
+iosApp/Packages/Features/Sources/CoreNavigation/<Name>Route.swift
+iosApp/Packages/Features/Sources/<Name>/<Name>Screen.swift
+iosApp/Packages/Features/Sources/<Name>/<Name>Destination.swift
+```
+
+**Shared logic:**
 
 ```
 sharedLogic/…/feature/<name>/domain/<Name>Repository.kt
@@ -51,8 +60,15 @@ sharedLogic/…/feature/<name>/presentation/<Name>ViewModel.kt
 sharedLogic/…/feature/<name>/di/<Name>Module.kt
 ```
 
-Most features want both. If a feature reuses another feature's ViewModel, take
-the Android module only.
+By default you get all three, so the two platforms cannot drift apart. Narrow it
+with `--targets`:
+
+```bash
+kmp-scaffold add feature billing --targets android,shared
+kmp-scaffold add feature billing --targets ios
+```
+
+If a feature reuses another feature's ViewModel, drop `shared`.
 
 ## What gets wired
 
@@ -66,6 +82,8 @@ This is the part that is tedious to do by hand and easy to half-finish:
 | `androidApp/…/AppSerializers.kt` | `<name>NavSerializers`, plus its import |
 | `androidApp/…/App.kt` | `<name>Entries()`, plus its import |
 | `sharedLogic/…/di/SharedModules.kt` | `<name>Module` in the `includes(...)` list |
+| `iosApp/Packages/Features/Package.swift` | the product, the target, and the `AppFeatures` umbrella |
+| `iosApp/iosApp/App/AppCoordinator.swift` | the import, plus a tab or a destination registration |
 
 The serializer registration is the one worth knowing about. Without it the
 screen still works, but the back stack silently fails to save — navigate to the
@@ -116,8 +134,10 @@ The same idea, using the dialog scene strategy.
 
 ### Root tab (`--presentation shell`)
 
-Only available with the adaptive shell layout. As well as the usual wiring, a
-root tab is added to:
+Only available with the adaptive shell layout. On iOS it becomes a new tab in
+`AppCoordinator`'s `TabView`, with its own `AppTab` case and `NavigationPath`.
+
+On Android, as well as the usual wiring, a root tab is added to:
 
 - the `roots` set in `App.kt`, which is what gives it its own back stack;
 - `NavigationItemsList` in `core/ui/…/Navigation.kt`, with a Material Symbols
@@ -125,7 +145,9 @@ root tab is added to:
 - `core/ui/build.gradle.kts`, since the item list references the route.
 
 Its `entries()` call goes into the per-tab entry provider rather than the global
-one — a tab is inside the shell, not on top of it.
+one — a tab is inside the shell, not on top of it. The iOS side makes the same
+distinction: a tab gets a `NavigationStack`, anything else gets registered on
+the `AppDestinations` modifier that every stack applies.
 
 Root tabs are also the thing to be sparing with: more than five or six will not
 fit a phone-width bar.
@@ -151,8 +173,12 @@ navigator.navigate(BillingRoute, replace = true)
 
 ## Filling in the generated code
 
-The generated screen is a placeholder with the wiring done. The generated
-repository returns a canned value and points at where the real call goes:
+The generated screens are placeholders with the wiring done. When the feature
+includes shared logic, both the Compose screen and the SwiftUI screen already
+collect the same ViewModel — see [iOS architecture](ios-architecture.md#using-shared-viewmodels).
+
+The generated repository returns a canned value and points at where the real
+call goes:
 
 ```kotlin
 override suspend fun load(): Result<String> = runCatching {
@@ -170,7 +196,7 @@ screen already collects it with `collectAsStateWithLifecycle`.
 ```bash
 kmp-scaffold add feature billing --yes
 kmp-scaffold add feature billing --yes --presentation overlay
-kmp-scaffold add feature billing --yes --android-only
+kmp-scaffold add feature billing --yes --targets android,shared
 kmp-scaffold add feature billing --dry-run     # see the plan first
 ```
 

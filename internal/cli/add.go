@@ -36,9 +36,9 @@ func runAddFeature(ctx context.Context, args []string) error {
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, `Usage: kmp-scaffold add feature [name] [flags]
 
-Creates a feature module and wires it into the project: settings.gradle.kts,
-the app's dependencies, the route serializers, the entry provider and - for a
-shared feature - the Koin graph.
+Creates a feature and wires it into the project: settings.gradle.kts, the app's
+dependencies, the route serializers, the entry provider, the Koin graph and -
+on the modular iOS layout - the Features package and the app coordinator.
 
 Flags:
 `)
@@ -46,14 +46,14 @@ Flags:
 	}
 
 	var (
-		androidOnly = fs.Bool("android-only", false, "Only generate the Android module")
-		sharedOnly  = fs.Bool("shared-only", false, "Only generate the shared logic")
-		present     = fs.String("presentation", "", "above-nav, overlay, dialog or shell (a root tab)")
-		yes         = fs.Bool("yes", false, "Skip the wizard")
-		dryRun      = fs.Bool("dry-run", false, "Report what would change without changing it")
-		force       = fs.Bool("force", false, "Overwrite files that already exist")
-		dir         = fs.String("dir", ".", "Project directory")
-		verbose     = fs.Bool("verbose", false, "List every file written")
+		targets = fs.String("targets", "",
+			"Comma-separated: android, ios, shared (default: every one this project supports)")
+		present = fs.String("presentation", "", "above-nav, overlay, dialog or shell (a root tab)")
+		yes     = fs.Bool("yes", false, "Skip the wizard")
+		dryRun  = fs.Bool("dry-run", false, "Report what would change without changing it")
+		force   = fs.Bool("force", false, "Overwrite files that already exist")
+		dir     = fs.String("dir", ".", "Project directory")
+		verbose = fs.Bool("verbose", false, "List every file written")
 	)
 	flags, operands := permute(fs, args)
 	if err := fs.Parse(flags); err != nil {
@@ -65,10 +65,26 @@ Flags:
 		return err
 	}
 
+	// By default a feature covers every side of the project it can.
+	iosSupported := manifest.IOS && generator.SupportsFeatures(generator.KindIOS, manifest.IOSLayout)
 	draft := tui.FeatureDraft{
-		Android:      manifest.Android && !*sharedOnly,
-		Shared:       !*androidOnly,
+		Android:      manifest.Android,
+		IOS:          iosSupported,
+		Shared:       true,
 		Presentation: *present,
+	}
+	if *targets != "" {
+		chosen := splitList(*targets)
+		for _, t := range chosen {
+			switch t {
+			case "android", "ios", "shared":
+			default:
+				return fmt.Errorf("unknown target %q - use android, ios or shared", t)
+			}
+		}
+		draft.Android = model.Has(chosen, "android")
+		draft.IOS = model.Has(chosen, "ios")
+		draft.Shared = model.Has(chosen, "shared")
 	}
 	if draft.Presentation == "" {
 		draft.Presentation = "above-nav"
@@ -112,8 +128,8 @@ Flags:
 		draft = *collected
 	}
 
-	if !draft.Android && !draft.Shared {
-		return fmt.Errorf("nothing to generate - pick the Android module, the shared logic, or both")
+	if !draft.Android && !draft.IOS && !draft.Shared {
+		return fmt.Errorf("nothing to generate - pick at least one of android, ios or shared")
 	}
 
 	writer := render.NewWriter(root, *dryRun, *force)
@@ -121,6 +137,7 @@ Flags:
 		Name:         draft.Name,
 		Android:      draft.Android,
 		Shared:       draft.Shared,
+		IOS:          draft.IOS,
 		Presentation: draft.Presentation,
 		RootTab:      draft.RootTab,
 	}, Version, writer, *dryRun)

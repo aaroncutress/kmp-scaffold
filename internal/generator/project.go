@@ -87,6 +87,7 @@ func NewProject(ctx context.Context, spec model.Spec, res *resolve.Result, versi
 			Name:         tab.Name,
 			Android:      spec.Android,
 			Shared:       false,
+			IOS:          spec.IOS && spec.IOSLayout == IOSFeaturesLayout,
 			Presentation: "shell",
 			RootTab:      spec.AndroidLayout == "nav3-shell",
 		})
@@ -119,6 +120,7 @@ type FeatureRequest struct {
 	Name         string
 	Android      bool
 	Shared       bool
+	IOS          bool
 	Presentation string
 	RootTab      bool
 }
@@ -156,7 +158,9 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 		RootTab:         req.RootTab,
 		Android:         req.Android,
 		Shared:          req.Shared,
+		IOS:             req.IOS,
 		ProjectAccessor: model.Camel(req.Name),
+		Symbol:          TabSymbol(model.Kebab(req.Name)),
 	}
 
 	ctx := Ctx{
@@ -194,6 +198,25 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 		}
 	}
 
+	if req.IOS {
+		if manifest.IOSLayout == "" || manifest.IOSLayout == "none" {
+			return nil, fmt.Errorf("this project has no iOS app, so an iOS feature target cannot be added")
+		}
+		g, err := Get(KindIOS, manifest.IOSLayout)
+		if err != nil {
+			return nil, err
+		}
+		fg, ok := g.(FeatureGenerator)
+		if !ok {
+			return nil, fmt.Errorf(
+				"the %q iOS layout does not support adding feature targets - it has a single entry point, "+
+					"so add the view to the app target by hand", manifest.IOSLayout)
+		}
+		if err := fg.GenerateFeature(env); err != nil {
+			return nil, err
+		}
+	}
+
 	// Wire the new module into the files that already exist.
 	applier := wire.NewApplier(root, dryRun)
 	for _, edit := range featureEdits(manifest, spec, feature, req) {
@@ -209,21 +232,19 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 	}
 
 	// Record the feature, replacing any earlier entry with the same name.
+	record := model.Feature{
+		Name: feature.Name, Android: req.Android, Shared: req.Shared, IOS: req.IOS,
+		Presentation: req.Presentation, RootTab: req.RootTab,
+	}
 	updated := false
 	for i := range manifest.Features {
 		if manifest.Features[i].Name == feature.Name {
-			manifest.Features[i] = model.Feature{
-				Name: feature.Name, Android: req.Android, Shared: req.Shared,
-				Presentation: req.Presentation, RootTab: req.RootTab,
-			}
+			manifest.Features[i] = record
 			updated = true
 		}
 	}
 	if !updated {
-		manifest.Features = append(manifest.Features, model.Feature{
-			Name: feature.Name, Android: req.Android, Shared: req.Shared,
-			Presentation: req.Presentation, RootTab: req.RootTab,
-		})
+		manifest.Features = append(manifest.Features, record)
 	}
 	if req.RootTab && !model.Has(manifest.RootTabs, feature.Pascal) {
 		manifest.RootTabs = append(manifest.RootTabs, feature.Pascal)
@@ -334,6 +355,10 @@ func featureEdits(manifest *model.Manifest, spec model.Spec, f *FeatureCtx, req 
 			Lines:   []string{fmt.Sprintf("%sModule,", f.Camel)},
 			Imports: []string{fmt.Sprintf("import %s.feature.%s.di.%sModule", pkg, f.Pkg, f.Camel)},
 		})
+	}
+
+	if req.IOS && manifest.IOSLayout == IOSFeaturesLayout {
+		edits = append(edits, iosFeatureEdits(f, req)...)
 	}
 
 	return edits

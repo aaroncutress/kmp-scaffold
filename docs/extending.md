@@ -10,10 +10,11 @@ This is the main extension point. A layout is a **generator**: something that
 knows how to write one part of a project. They live in a registry, so the wizard
 lists whatever is registered without being told about it.
 
-Suppose you decide the iOS app should mirror the Android side with a folder per
-feature. Today's `swiftui-simple` generator writes a single `ContentView.swift`;
-you want a `swiftui-feature` alternative alongside it — not instead of it, so
-existing projects still regenerate the way they were built.
+`swiftui-features` was added this way: `swiftui-simple` writes a single
+`ContentView.swift`, and the modular layout was registered *alongside* it rather
+than replacing it, so projects generated against the old one still regenerate
+the way they were built. `internal/generator/ios_features.go` is the worked
+example — the sketch below is the same shape.
 
 ### 1. Write the generator
 
@@ -26,7 +27,7 @@ func init() { Register(iosFeatureGenerator{}) }
 
 type iosFeatureGenerator struct{}
 
-func (iosFeatureGenerator) ID() string    { return "swiftui-feature" }
+func (iosFeatureGenerator) ID() string    { return "swiftui-custom" }
 func (iosFeatureGenerator) Label() string { return "SwiftUI, one folder per feature" }
 func (iosFeatureGenerator) Description() string {
     return "A Views/<Feature>/ folder per feature, mirroring the Android module layout"
@@ -85,7 +86,7 @@ whatever you give it, as above.
 ### 3. That is it
 
 The wizard's iOS layout screen now lists your generator, `--ios-layout
-swiftui-feature` works, and the choice is recorded in `.kmp-scaffold.json` so
+swiftui-custom` works, and the choice is recorded in `.kmp-scaffold.json` so
 later `add` runs use the same layout.
 
 ### Supporting `add feature`

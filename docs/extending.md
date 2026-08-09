@@ -1,8 +1,14 @@
 # Extending kmp-scaffold
 
-The tool is built so the things you are most likely to want to change are
-additive. This page covers the five common cases, from the largest to the
-smallest.
+Changing the tool itself, in Go. The things you are most likely to want are
+additive: a whole template, a project layout within one, or an anchor that lets
+generated files be extended later.
+
+Most of the time you do not need any of this. A template written as a directory
+of files needs no Go at all — see [writing a template](templates/writing.md).
+And adding a library or a shared utility to the default template is a row in a
+table, covered in
+[kmp-mobile's libraries](kmp-mobile/libraries.md#adding-a-library-pack).
 
 ## Adding a template
 
@@ -99,7 +105,7 @@ A template that does not need any of the Go-only power — options from a
 registry, cross-question dependency rules, a hook into the resolver — can be a
 directory with a `template.toml` and a tree of Go templates, with no compiler
 involved. That is usually the right answer for a second template. See
-[templates](templates.md#writing-a-template); the implementation is
+[templates](templates/writing.md); the implementation is
 `internal/scaffold/filetmpl`, and `examples/templates/ktor-service` is the
 worked example, exercised end to end by the tests.
 
@@ -215,91 +221,6 @@ func (iosFeatureGenerator) GenerateFeature(env *Env) error {
 A layout without it still works for `new`; `add feature` just says the layout
 does not support being extended, rather than half-generating something.
 
-## Adding a library pack
-
-Everything about a library lives in `internal/catalog/catalog.go`.
-
-**1. A version key**, in `VersionKeys()`, with the coordinate to probe:
-
-```go
-{Key: "sqldelight", Section: "Network & Multiplatform Utilities",
-    Probe:    Coordinate{"app.cash.sqldelight", "runtime", Central},
-    Baseline: "2.0.2"},
-```
-
-`Baseline` is the offline fallback, not a pin. Add `MinChannel: Bleeding` if the
-library has never had a stable release.
-
-**2. The artifacts**, in `Libraries()`, gated on a pack:
-
-```go
-{"sqldelight-runtime", "app.cash.sqldelight:runtime", "sqldelight",
-    "External Libraries", Pack("sqldelight")},
-{"sqldelight-coroutines", "app.cash.sqldelight:coroutines-extensions", "sqldelight",
-    "External Libraries", Pack("sqldelight")},
-```
-
-The last field is a predicate. `Pack(id)`, `Util(id)`, `Extra(id)`, `AndroidOnly`,
-`IOSOnly`, `Always`, `And(...)` and `AnyPack(...)` compose to describe when the
-artifact applies.
-
-**3. The pack itself**, in `Packs()`:
-
-```go
-{ID: "sqldelight", Label: "SQLDelight",
-    Description: "Typed SQL, generated from your schema.",
-    Tier:        TierExtra},
-```
-
-`TierBasic` puts it in the default set; `TierExtra` makes it opt-in. Add
-`RequiresIOS` or `RequiresAndroid` if it only makes sense on one platform.
-
-**4. A plugin**, if it needs one, in `Plugins()`:
-
-```go
-{"sqldelight", "app.cash.sqldelight", "sqldelight", Pack("sqldelight")},
-```
-
-Then reference it from the module templates that need the dependency:
-
-```
-{{- if .Spec.HasPack "sqldelight" }}
-    implementation(libs.sqldelight.runtime)
-{{- end }}
-```
-
-`go test ./internal/catalog` checks that every library and bundle references a
-version key that exists and that every key has a baseline, so a typo fails
-immediately.
-
-## Adding a shared utility
-
-A utility is a group of files in `sharedLogic` the wizard can toggle.
-
-**1. Declare it**, in `SharedUtilities()`:
-
-```go
-{ID: "analytics", Label: "Analytics facade",
-    Description: "A shared Analytics interface with a no-op default implementation.",
-    Default:     true, Requires: []string{"koin-di"}},
-```
-
-`Requires` names other utilities; `RequiresPack` names library packs. Both are
-enforced by `Normalise`, which pulls in dependencies and drops anything whose
-requirements are missing, explaining each change.
-
-**2. Add the templates** to `internal/assets/shared.tmpl`.
-
-**3. List the files** in `internal/generator/shared.go`:
-
-```go
-{"shared/Analytics.kt", common("core/analytics/Analytics.kt"),
-    spec.HasSharedUtil("analytics")},
-```
-
-The third field is the condition, so a utility that is switched off writes
-nothing.
-
 ## Adding an anchor
 
 If a new generated file needs to be extended by `add feature`, give it an anchor.
@@ -345,9 +266,10 @@ remove it.
 internal/
 ├── model/       the KMP spec, the project manifest, naming helpers
 ├── catalog/     every library, plugin, pack and version key
-├── resolve/     Maven / SDK / Gradle lookups, version comparison, compatibility rules
+├── resolve/     Maven / Swift / SDK / Gradle lookups, version comparison, compatibility rules
 ├── render/      template execution, file writing, collision handling
 ├── wire/        anchor-based edits to existing files
+├── vcs/         git init in a freshly generated project
 ├── scaffold/    what a template is: Template, Question, Answers, the registry
 │   └── filetmpl/    templates written as a directory rather than as Go
 ├── kmp/         the kmp-mobile template

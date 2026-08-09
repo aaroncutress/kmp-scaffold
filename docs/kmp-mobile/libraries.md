@@ -1,7 +1,12 @@
 # Libraries and versions
 
-How the tool decides which versions to write, and how to keep a project current
-afterwards.
+**Template: `kmp-mobile`.** How the default template decides which versions to
+write into `gradle/libs.versions.toml`, what each library pack contains, and how
+to keep a generated project current afterwards.
+
+The version *resolver* is the tool's, and any template can use it — see
+[writing a template](../templates/writing.md#versions). The catalog of libraries
+below belongs to this template alone.
 
 ## The core
 
@@ -75,17 +80,23 @@ a confusing compile error rather than an obvious one.
 ## How resolution works
 
 Nothing in this repository pins a "current" version. At generation time the tool
-makes four kinds of request:
+makes five kinds of request:
 
 1. **`maven-metadata.xml`** from Maven Central, Google Maven or the Gradle Plugin
    Portal, for every artifact it is about to write — in parallel.
-2. **Google's Android SDK index** (`repository2-3.xml`) for the newest platform
+2. **`git ls-remote --tags`** for Swift packages, which have no metadata file:
+   a package is a git repository and its versions are its tags. Only the iOS
+   side uses this.
+3. **Google's Android SDK index** (`repository2-3.xml`) for the newest platform
    and build-tools.
-3. **The Gradle release feed** for the current distribution and its SHA-256, so
+4. **The Gradle release feed** for the current distribution and its SHA-256, so
    `gradle-wrapper.properties` gets a verified checksum.
-4. **The Gradle source tree** for `gradlew`, `gradlew.bat` and
+5. **The Gradle source tree** for `gradlew`, `gradlew.bat` and
    `gradle-wrapper.jar`, so the wrapper is byte-for-byte what `gradle wrapper`
    would have produced.
+
+Every lookup can fail without failing the run: each key carries a known-good
+baseline, and anything that fell back to one is listed on the resolve screen.
 
 ### Release channels
 
@@ -142,6 +153,14 @@ it is not versioned separately; `buildSrc` pins it to the same version.
 **SKIE ↔ Kotlin.** SKIE usually trails new Kotlin releases by a few days. It is
 resolved independently and flagged, since the failure mode (the iOS framework
 does not link) is otherwise cryptic.
+
+**KMP-ObservableViewModel's two halves.** Its Kotlin artifact and its Swift
+package are published together and read each other's internals, so mixing
+versions compiles and then misbehaves. The Swift side is resolved from the
+repository's tags and then pinned to whatever the Kotlin side settled on, and
+`Packages/Features/Package.swift` uses `exact:` rather than a range so Swift
+Package Manager cannot drift off it later. If the Swift side has not published
+that version, the run says so rather than pinning a version that does not exist.
 
 ## Pinning versions
 
@@ -201,4 +220,89 @@ project and it shows what a fresh project would use today.
 
 Everything above — coordinates, packs, minimum channels, baselines — is one Go
 file: `internal/catalog/catalog.go`. Adding a library means adding a row to a
-table. See [Extending](extending.md#adding-a-library-pack).
+table.
+
+## Adding a library pack
+
+Everything about a library lives in `internal/catalog/catalog.go`.
+
+**1. A version key**, in `VersionKeys()`, with the coordinate to probe:
+
+```go
+{Key: "sqldelight", Section: "Network & Multiplatform Utilities",
+    Probe:    Coordinate{"app.cash.sqldelight", "runtime", Central},
+    Baseline: "2.0.2"},
+```
+
+`Baseline` is the offline fallback, not a pin. Add `MinChannel: Bleeding` if the
+library has never had a stable release.
+
+**2. The artifacts**, in `Libraries()`, gated on a pack:
+
+```go
+{"sqldelight-runtime", "app.cash.sqldelight:runtime", "sqldelight",
+    "External Libraries", Pack("sqldelight")},
+{"sqldelight-coroutines", "app.cash.sqldelight:coroutines-extensions", "sqldelight",
+    "External Libraries", Pack("sqldelight")},
+```
+
+The last field is a predicate. `Pack(id)`, `Util(id)`, `Extra(id)`, `AndroidOnly`,
+`IOSOnly`, `Always`, `And(...)` and `AnyPack(...)` compose to describe when the
+artifact applies.
+
+**3. The pack itself**, in `Packs()`:
+
+```go
+{ID: "sqldelight", Label: "SQLDelight",
+    Description: "Typed SQL, generated from your schema.",
+    Tier:        TierExtra},
+```
+
+`TierBasic` puts it in the default set; `TierExtra` makes it opt-in. Add
+`RequiresIOS` or `RequiresAndroid` if it only makes sense on one platform.
+
+**4. A plugin**, if it needs one, in `Plugins()`:
+
+```go
+{"sqldelight", "app.cash.sqldelight", "sqldelight", Pack("sqldelight")},
+```
+
+Then reference it from the module templates that need the dependency:
+
+```
+{{- if .Spec.HasPack "sqldelight" }}
+    implementation(libs.sqldelight.runtime)
+{{- end }}
+```
+
+`go test ./internal/catalog` checks that every library and bundle references a
+version key that exists and that every key has a baseline, so a typo fails
+immediately.
+
+## Adding a shared utility
+
+A utility is a group of files in `sharedLogic` the wizard can toggle.
+
+**1. Declare it**, in `SharedUtilities()`:
+
+```go
+{ID: "analytics", Label: "Analytics facade",
+    Description: "A shared Analytics interface with a no-op default implementation.",
+    Default:     true, Requires: []string{"koin-di"}},
+```
+
+`Requires` names other utilities; `RequiresPack` names library packs. Both are
+enforced by `Normalise`, which pulls in dependencies and drops anything whose
+requirements are missing, explaining each change.
+
+**2. Add the templates** to `internal/assets/shared.tmpl`.
+
+**3. List the files** in `internal/generator/shared.go`:
+
+```go
+{"shared/Analytics.kt", common("core/analytics/Analytics.kt"),
+    spec.HasSharedUtil("analytics")},
+```
+
+The third field is the condition, so a utility that is switched off writes
+nothing.

@@ -1,6 +1,8 @@
 # Project layout
 
-What a generated project contains, and why it is arranged this way.
+**Template: `kmp-mobile`.** What this template generates, and why it is arranged
+this way. A different template writes a different tree; nothing below is a
+property of the tool.
 
 ```
 my-app/

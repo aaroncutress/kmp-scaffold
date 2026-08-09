@@ -3,6 +3,10 @@
 This page walks through creating your first project. It assumes you have
 `kmp-scaffold` on your `PATH` — see the [README](../README.md#install) if not.
 
+The wizard's screens depend on the template you generate from. The walkthrough
+below uses [`kmp-mobile`](kmp-mobile/README.md), the default; the first few
+screens and the last two are the same whatever you pick.
+
 ## Running the wizard
 
 ```bash
@@ -27,22 +31,37 @@ the final confirmation screen.
 
 ## The screens
 
-### 1–3. Name, directory, package
+### 1–2. Name and directory
 
 The project name becomes `rootProject.name`, the Android app label, and the
 prefix for generated Kotlin types — `Tunesic` gives you `TunesicTheme` and
 `TunesicApplication`.
 
-The package is reverse-DNS (`io.kontour.tunesic`) and doubles as the Android
-`applicationId`. It cannot contain a Kotlin keyword; the wizard tells you if it
-does.
+### 3. Git repository
 
-### 4. Platforms
+Whether to run `git init` and make an initial commit once everything is written,
+so the first thing you change afterwards shows up as a diff.
+
+It is only asked when it could do something: the question is skipped when the
+target is already inside a working tree — generating into a subdirectory of an
+existing project is ordinary, and nesting a repository inside another one is
+almost never meant — and when `git` is not on your `PATH`.
+
+Nothing here can fail the run. Without a configured `user.name` and
+`user.email`, the repository is created and the files staged, and the summary
+says what to set and what to run to finish.
+
+### 4. Package
+
+Reverse-DNS (`io.kontour.tunesic`), doubling as the Android `applicationId`. It
+cannot contain a Kotlin keyword; the wizard tells you if it does.
+
+### 5. Platforms
 
 Tick Android, iOS, or both. `sharedLogic` is always generated — it is the point
 of the exercise.
 
-### 5. Android navigation layout
+### 6. Android navigation layout
 
 Two options today, both built on Navigation 3:
 
@@ -53,9 +72,9 @@ Two options today, both built on Navigation 3:
   navigate from a single entry point.
 
 These come from a registry, so a new layout added later appears here
-automatically — see [Extending](extending.md).
+automatically — see [extending kmp-scaffold](extending.md#adding-a-project-layout).
 
-### 6. Root tabs
+### 7. Root tabs
 
 Only asked for the shell layout. Comma-separated, in order:
 
@@ -68,13 +87,13 @@ a `RootRoute`, and an entry in the navigation bar with a sensible Material
 Symbols icon picked from its name. Six is the practical maximum on a phone, and
 the wizard will say so.
 
-### 7. iOS layout
+### 8. iOS layout
 
 - **SwiftUI, one target per feature** (default) — a local Swift package with a
   target per feature, a shared `CoreNavigation` module for route payloads, and a
   `TabView` giving each tab its own `NavigationPath`. This is the counterpart to
   the Android `api`/`impl` split, and the one `kmp-scaffold add feature` can
-  extend. See [iOS architecture](ios-architecture.md).
+  extend. See [iOS architecture](kmp-mobile/ios-architecture.md).
 - **SwiftUI, single entry point** — one `ContentView.swift`. Fine for a small
   app or a spike.
 - **No iOS project files** — still builds the framework; add the Xcode project
@@ -84,7 +103,7 @@ The modular layout needs the shared framework as an XCFramework, so there is one
 extra step before the first Xcode build (`./iosApp/build-framework.sh`). The
 generator tells you, and so does `iosApp/README.md`.
 
-### 8. Shared utilities
+### 9. Shared utilities
 
 The checklist that matters most. These are the pieces of `sharedLogic` that
 every one of your projects tends to grow anyway:
@@ -105,13 +124,13 @@ All are on by default. Turning one off simply means those files are not written.
 Some depend on others (the network observer needs `BaseViewModel`); the wizard
 pulls those in for you and says so on the summary screen.
 
-### 9. Android extras
+### 10. Android extras
 
 Wiring in `androidApp` and `core/ui` that most apps end up writing by hand:
 bottom-sheet and dialog scene strategies, the splash screen, a global snackbar
 host that survives navigation, an offline banner, and edge-to-edge handling.
 
-### 10–11. Libraries
+### 11–12. Libraries
 
 First pick a starting point — **Basic** (images, local database, secrets,
 logging), **Minimal** (core only), or **Everything** — then fine-tune the exact
@@ -121,10 +140,10 @@ The core is always present and is not offered as a choice: Compose,
 Navigation 3, Koin, Ktor, coroutines, serialisation, datetime, lifecycle and the
 test stack.
 
-See [Libraries and versions](libraries-and-versions.md) for what each pack pulls
+See [Libraries and versions](kmp-mobile/libraries.md) for what each pack pulls
 in.
 
-### 12. Version channel
+### 13. Version channel
 
 How current you want to be:
 
@@ -136,13 +155,13 @@ How current you want to be:
 Libraries that have never had a stable release always use their newest track
 regardless, because there is nothing else available.
 
-### 13. Minimum Android SDK
+### 14. Minimum Android SDK
 
 `compileSdk` and `targetSdk` are resolved for you from Google's SDK index,
 capped at what your Android Gradle Plugin version supports. Only `minSdk` is
 your call.
 
-### 14. Resolution
+### 15. Resolution
 
 The tool now contacts Maven Central, Google Maven, Google's SDK index and the
 Gradle release feed, and shows you what it found:
@@ -165,12 +184,16 @@ Resolved versions
 
 Anything the resolver had to adjust is explained here, not buried in a log.
 
-### 15. Review
+### 16. Review
 
 A final checklist of every decision, plus the toolchain versions. <kbd>enter</kbd>
 generates; <kbd>esc</kbd> goes back to change something.
 
 ## After generating
+
+If a repository was set up, everything generated is already in its first commit
+— so whatever you change next is a diff against a known starting point, and
+`kmp-scaffold add feature` shows up as one too.
 
 ```bash
 cd my-app
@@ -194,7 +217,7 @@ On the single-entry-point layout there is no bootstrap step: just open
 
 Opening the project in Android Studio or IntelliJ, the run dropdown is already
 populated — the app targets plus the Gradle tasks you reach for most, generated
-into `.run/`. See [project layout](project-layout.md#run).
+into `.run/`. See [project layout](kmp-mobile/project-layout.md#run).
 
 ## Skipping the wizard
 
@@ -214,6 +237,9 @@ kmp-scaffold new my-app \
 `kmp-scaffold new --help` lists them all. The wizard is also skipped
 automatically when stdout is not a terminal, so piping output works without
 `--yes`.
+
+The git repository is set up in this mode too, unless the target is already
+inside one. `--no-git` turns it off; `--git` forces it on.
 
 Add `--dry-run` to see exactly what would be written first.
 
@@ -240,4 +266,4 @@ kmp-scaffold new my-api --template ./examples/templates/ktor-service
 
 Which template built a project is recorded in its `.kmp-scaffold.json`, so
 `kmp-scaffold add feature` extends it the same way it was made. Writing your own
-is covered in [templates](templates.md#writing-a-template).
+is covered in [templates](templates/writing.md).

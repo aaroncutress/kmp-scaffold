@@ -1,6 +1,8 @@
 # iOS architecture
 
-The default iOS layout (`swiftui-features`) is the counterpart to the Android
+**Template: `kmp-mobile`.** The iOS side of what this template generates.
+
+Its default iOS layout (`swiftui-features`) is the counterpart to the Android
 `api`/`impl` split: one local Swift package, one target per feature, and a
 shared `CoreNavigation` target that every feature depends on and none of them
 depends on each other through.
@@ -13,8 +15,11 @@ If you want something smaller, `--ios-layout swiftui-simple` generates a single
 ```
 iosApp/
 ├── iosApp.xcodeproj
+├── README.md                       how to build it, and in what order
 ├── build-framework.sh              Gradle → Frameworks/SharedLogic.xcframework
 ├── Frameworks/                     generated, gitignored
+├── Configuration/
+│   └── Config.xcconfig             bundle id, product name, TEAM_ID
 ├── iosApp/
 │   ├── Info.plist
 │   ├── Assets.xcassets/
@@ -261,3 +266,10 @@ anchor comment placed there would be silently discarded, and `add feature` could
 not maintain a per-feature link list. Linking one umbrella product means adding
 a feature never touches the Xcode project at all. Targets stay separate, so the
 build cache is just as granular either way.
+
+The generated `project.pbxproj` already contains the wiring Xcode would have
+written had you added the package through its own UI — an
+`XCLocalSwiftPackageReference` for `Packages/Features`, an
+`XCSwiftPackageProductDependency` per linked product, and the build files that
+carry them into the frameworks phase. There is nothing to do in Xcode before the
+project builds.

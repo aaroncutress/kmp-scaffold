@@ -52,7 +52,7 @@ already in place:
 - **`gradle/libs.versions.toml`** — every version in one place, resolved against
   Maven Central, Google Maven and the Gradle release feed at the moment you
   generate, with compatibility rules applied (see
-  [docs/libraries-and-versions.md](docs/libraries-and-versions.md)).
+  [docs/kmp-mobile/libraries.md](docs/kmp-mobile/libraries.md)).
 
 ## Install
 
@@ -108,21 +108,34 @@ its full flag list.
 
 ## Documentation
 
+[**docs/**](docs/README.md) is the index. It is split the way the tool is: pages
+about `kmp-scaffold` itself, and pages about `kmp-mobile`, the template it
+generates from by default.
+
+**The tool**
+
 - **[Getting started](docs/getting-started.md)** — the wizard, screen by screen.
-- **[Templates](docs/templates.md)** — using a template other than the default,
-  fetching one from a git repository, and writing one of your own without
-  touching Go.
-- **[Project layout](docs/project-layout.md)** — what each generated module is
-  for, and why the navigation is split the way it is.
-- **[Adding features](docs/adding-features.md)** — feature modules, root tabs,
-  sheets and dialogs, and what gets wired where.
-- **[Libraries and versions](docs/libraries-and-versions.md)** — library packs,
-  how version resolution works, release channels, and keeping a project current.
-- **[iOS architecture](docs/ios-architecture.md)** — the modular Swift package
-  layout, how it maps onto the Android side, and the XCFramework it needs.
-- **[Extending kmp-scaffold](docs/extending.md)** — adding a template, a project
-  layout, a library pack, or a shared utility.
-- **[Troubleshooting](docs/troubleshooting.md)** — what to do when a build fails.
+- **[Using a template](docs/templates/using.md)** — generating from something
+  other than the default, and fetching one from a git repository.
+- **[Writing a template](docs/templates/writing.md)** — the `template.toml`
+  reference and recipes, without touching Go.
+- **[Extending kmp-scaffold](docs/extending.md)** — adding a built-in template,
+  a project layout, or an anchor, in Go.
+- **[Troubleshooting](docs/troubleshooting.md)** — when generating, the wizard,
+  or a remote template misbehaves.
+
+**The default template**
+
+- **[kmp-mobile](docs/kmp-mobile/README.md)** — what it generates, what is
+  optional, and how to build it.
+- **[Project layout](docs/kmp-mobile/project-layout.md)** — what each generated
+  module is for, and why the navigation is split the way it is.
+- **[iOS architecture](docs/kmp-mobile/ios-architecture.md)** — the modular
+  Swift package layout, how it maps onto Android, and the XCFramework it needs.
+- **[Adding features](docs/kmp-mobile/features.md)** — feature modules, root
+  tabs, sheets and dialogs, and what gets wired where.
+- **[Libraries and versions](docs/kmp-mobile/libraries.md)** — library packs,
+  release channels, and keeping a project current.
 
 ## How it decides versions
 

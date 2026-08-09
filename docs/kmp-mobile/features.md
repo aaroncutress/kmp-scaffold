@@ -1,5 +1,10 @@
 # Adding features
 
+**Template: `kmp-mobile`.** `add` applies a template's own recipes to a project
+it generated, so what `add feature` writes is this template's business. Another
+template offers whatever recipes it declares — `kmp-scaffold add` with no
+arguments lists them.
+
 ```bash
 cd my-app
 kmp-scaffold add feature

@@ -1,138 +1,21 @@
-# Templates
+# Writing a template
 
-`kmp-scaffold new` generates from a **template**. A template owns a whole
-project: the questions it asks, the versions it resolves, and the files it
-writes.
-
-The Kotlin Multiplatform project the rest of this documentation describes is one
-template, `kmp-mobile`, and it is the default. This page is about using others,
-and writing your own.
-
-## Using a template
-
-```bash
-kmp-scaffold templates                    # what is available
-kmp-scaffold templates ktor-service       # what one asks, and what it writes
-kmp-scaffold new my-api --template ktor-service
-```
-
-`--template` takes any of:
-
-| Ref | Means |
-| --- | --- |
-| `kmp-mobile` | a built-in template |
-| `ktor-service` | one in your templates folder, or one already fetched |
-| `./templates/my-thing` | a directory, relative or absolute |
-| `github:owner/repo` | a git repository — see [below](#templates-from-a-git-repository) |
-
-When more than one template is available, the wizard asks which to use before
-anything else — the answer decides what the rest of the questions are.
-
-Whichever built the project is recorded in its `.kmp-scaffold.json`, so a later
-`kmp-scaffold add` extends it the way it was made — and for a remote template,
-at the exact commit it was built from, not at whatever the branch points at
-today.
-
-## Templates from a git repository
-
-```bash
-kmp-scaffold templates add github:acme/templates          # fetch and review it
-kmp-scaffold new my-api --template ktor-service           # then use it by name
-```
-
-or in one step, `--template github:acme/templates`. The forms a ref takes:
-
-| Ref | Means |
-| --- | --- |
-| `github:acme/templates` | the default branch |
-| `github:acme/templates@v2` | a tag, branch or commit |
-| `github:acme/templates/services/ktor` | a directory inside the repository |
-| `gitlab:acme/templates@main` | GitLab |
-| `https://git.example.com/t/tmpl.git//service@v2` | any git remote; `//` separates the directory |
-| `git@github.com:acme/templates.git@v2` | over SSH |
-| `file:///srv/templates` | a repository on this machine (`file://C:\src\templates` on Windows) |
-
-Fetching shells out to `git`, so it uses your existing credentials and says so
-plainly if `git` is not installed.
-
-### Reviewing what you fetch
-
-A template writes files into your project, so the first time a given **commit**
-is used you are shown what it would do and asked:
-
-```
-A template from the internet
-
-  Template   Ktor service  (ktor-service)
-  From       https://github.com/acme/templates.git
-  Commit     d722a1a14af0b4dbc96121b12b4ef4a27e66f31b
-  Writes     6 file(s), and inserts into existing ones in 2 place(s)
-  Can add    route
-  Runs       nothing - templates cannot execute commands
-
-Use this template? [y/N]
-```
-
-Say yes and that commit is recorded in `~/.config/kmp-scaffold/trusted.json`.
-The answer is about the commit, not the repository: the same template at a later
-commit is a different set of files, and is asked about again.
-
-`--trust` accepts without asking, for CI. It is deliberately **not** implied by
-`--yes` — "do not ask me the wizard's questions" and "run files from the
-internet without looking" are different decisions, and a script should not
-acquire the second by asking for the first.
-
-The strongest part of this is what a template *cannot* do: there is no `run =`,
-no shell hook, no post-generate step. A template writes files and inserts at
-anchors. That is why the prompt can honestly say "Runs nothing".
-
-### The cache
-
-Fetched templates go under `${XDG_CACHE_HOME:-~/.cache}/kmp-scaffold/templates/`,
-keyed by the commit they resolved to. A tag or a commit is never re-fetched; a
-branch is re-checked once a day, or immediately with `--refresh`. `--offline`
-never touches the network, and says so if what you asked for is not cached.
-
-```bash
-kmp-scaffold templates                       # built-in, yours, and fetched
-kmp-scaffold templates add <ref> --refresh   # take the latest commit
-kmp-scaffold templates remove <ref>          # drop it, and forget it was reviewed
-```
-
-## Your templates folder
-
-Every directory here containing a `template.toml` is a template, offered by
-name:
-
-```
-~/.config/kmp-scaffold/templates/
-└── ktor-service/
-    ├── template.toml
-    └── files/
-```
-
-The location follows `XDG_CONFIG_HOME` if it is set, and
-`KMP_SCAFFOLD_TEMPLATES` overrides it entirely. `kmp-scaffold templates` prints
-the path it is using, and lists anything in there that will not load, with the
-reason — so a mistake shows up rather than the template silently vanishing.
-
-Built-in ids win, so a template in your folder cannot shadow `kmp-mobile` by
-accident.
-
-## Writing a template
+The reference for `template.toml`: every block it takes, what a recipe is, and
+where the format stops. For picking and fetching templates rather than writing
+one, see [using a template](using.md).
 
 A template is a directory with a `template.toml` and a tree of
 [Go templates](https://pkg.go.dev/text/template). No compiler, no Go.
 
 There is a complete worked example in
-[`examples/templates/ktor-service`](../examples/templates/ktor-service) — a Ktor
+[`examples/templates/ktor-service`](../../examples/templates/ktor-service) — a Ktor
 server with routes, DI and a Dockerfile. Generate from it to see it work:
 
 ```bash
 kmp-scaffold new my-api --template ./examples/templates/ktor-service
 ```
 
-### The shape
+## The shape
 
 ```
 my-template/
@@ -152,7 +35,7 @@ files:
 - **A `dot-` prefix becomes a leading dot**, so a template can carry a
   `.gitignore` without git honouring it inside the template itself.
 
-### The manifest
+## The manifest
 
 ```toml
 schema = 1
@@ -166,7 +49,7 @@ uses_package = true                  # ask the universal "package name?" questio
 sentinels    = ["build.gradle.kts"]  # files meaning "already a project here"
 ```
 
-#### Questions
+### Questions
 
 Asked in order, after the universal name, directory and package questions.
 
@@ -218,7 +101,7 @@ when    = '{{ ne .Vars.database "none" }}'   # skipped when this is falsey
 `id` is what the answer is stored under, and how everything else refers to it:
 `{{ .Vars.port }}`.
 
-#### Versions
+### Versions
 
 Declare what to resolve and the generated files are never pinned to whatever was
 current when the template was written. Leave the block out entirely and the
@@ -236,15 +119,57 @@ min_sdk_from = "minSdk"
   key      = "logback"
   group    = "ch.qos.logback"
   artifact = "logback-classic"
-  repo     = "central"                      # central | google | portal
+  repo     = "central"                      # central | google | portal | swift
   baseline = "1.5.16"                       # used offline, or if the lookup fails
-  min_channel = "stable"
+  min_channel = "stable"                    # a floor for this key alone
 ```
 
 The catalog's key names are in
-[libraries and versions](libraries-and-versions.md).
+[libraries and versions](../kmp-mobile/libraries.md). `min_channel` raises the
+channel for one key — for a library that has never had a stable release. Leave
+it out and the key follows whatever channel the run is using.
 
-#### Files
+#### Swift packages
+
+`repo = "swift"` resolves a Swift Package Manager package. A package is a git
+repository and its versions are its tags, so this reads the tags rather than any
+metadata file — `group` is everything up to the owner and `artifact` is the
+repository:
+
+```toml
+  [[versions.probe]]
+  key      = "observableviewmodel-swift"
+  group    = "https://github.com/rickclephas"
+  artifact = "KMP-ObservableViewModel"
+  repo     = "swift"
+  baseline = "1.0.6"
+```
+
+A leading `v` is stripped, so `v1.2.0` and `1.2.0` are the same version, and
+tags that are not versions at all are ignored. From there it goes through the
+same channel rules as everything else. This needs `git` on the `PATH`; without
+it the baseline is used and the run says so.
+
+#### Keys that must match
+
+Some libraries publish two halves from one release — a Kotlin artifact and a
+Swift package, say — which read each other's internals and cannot be mixed
+across versions. Resolving each independently picks a working pair most of the
+time and a broken one the week after a release.
+
+```toml
+  [[versions.pair]]
+  lead   = "observableviewmodel"            # this key's version wins
+  follow = "observableviewmodel-swift"      # this one takes it
+  label  = "KMP-ObservableViewModel"        # named in the note if they cannot match
+```
+
+`follow` takes `lead`'s exact version whenever it published that version. When
+it did not, it keeps its own pick and the run warns rather than failing — one
+library disagreeing with itself is not worth losing a whole generation over. A
+version the user pinned explicitly is never overwritten.
+
+### Files
 
 Rendered in order. Every `to` is itself a Go template.
 
@@ -290,7 +215,7 @@ renders to nothing is not written, so a whole file can be made conditional with
 Output paths are cleaned and must stay inside the project directory — a `to`
 that escapes it is refused, however it was templated.
 
-#### The review screen and next steps
+### The review screen and next steps
 
 Without a `[[summary]]` block the review is built from the questions, which is
 usually enough. To say it differently:
@@ -316,7 +241,7 @@ command = "docker build -t {{ kebab .Project.Name }} ."
 when    = "{{ .Vars.docker }}"
 ```
 
-#### Recipes
+### Recipes
 
 A recipe is a named thing `kmp-scaffold add` can apply to a project this
 template generated — what turns a template from a one-shot scaffold into
@@ -355,7 +280,7 @@ name_hint   = "Lowercase kebab-case, e.g. order-history."
 Run it with `kmp-scaffold add route order-history`. `kmp-scaffold add` on its own
 lists what a project accepts.
 
-##### Anchors
+#### Anchors
 
 An edit inserts **above an anchor comment**, matching its indentation. The
 generated file has to carry one:
@@ -384,7 +309,7 @@ what is:
 sorts the new line into it, falling back to just after `package`. For any other
 language, use a plain anchor instead.
 
-##### What a recipe sees
+#### What a recipe sees
 
 Everything a `[[files]]` entry sees, plus:
 
@@ -399,7 +324,7 @@ What each recipe added is recorded in `.kmp-scaffold.json` under its name and
 recipe, which is what stops the same thing being added twice. Two recipes may
 each have a `billing`.
 
-### What a template sees
+## What a template sees
 
 Every Go template — file contents, `to` paths, `when` conditions, summary values
 — is rendered against the same context:
@@ -434,7 +359,7 @@ Plus these functions:
 A condition is true when it renders to anything other than empty, `false`, `0`,
 `no`, `off` or an empty list.
 
-### A mistake is an error
+## A mistake is an error
 
 Unknown keys in `template.toml` are rejected by name, as are a question with no
 prompt, a select with no options, two questions sharing an id, a `from` that
@@ -466,5 +391,5 @@ Worth stating plainly, because it is where the format stops and Go begins:
 - **Remove or rename.** A recipe adds. Undoing one is `git checkout`.
 
 If you need any of those, write a Go template — see
-[extending kmp-scaffold](extending.md#adding-a-template). `kmp-mobile` is the
+[extending kmp-scaffold](../extending.md#adding-a-template). `kmp-mobile` is the
 worked example, and it is a Go template for exactly these reasons.

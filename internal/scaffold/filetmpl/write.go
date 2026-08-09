@@ -172,6 +172,38 @@ func listExpr(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// sourceFile resolves a path inside the template, refusing anything that is not
+// an ordinary file within it.
+//
+// The check matters for a template fetched from a remote: the manifest is data
+// from someone else, and a `from` of "../../.ssh/id_rsa" - or a symlink to the
+// same - must not become a file in the generated project.
+func (t *Template) sourceFile(rel string) (string, error) {
+	abs := filepath.Join(t.dir, filepath.FromSlash(rel))
+
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", rel, err)
+	}
+	root, err := filepath.EvalSymlinks(t.dir)
+	if err != nil {
+		return "", err
+	}
+	inside, err := filepath.Rel(root, resolved)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%s is outside the template directory", rel)
+	}
+
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not an ordinary file", rel)
+	}
+	return abs, nil
+}
+
 // outputName turns a path inside the template into the path it is written to.
 //
 // Two conventions, both there to keep a template's own files ordinary files:
@@ -221,6 +253,12 @@ func (t *Template) expand(from string) ([]source, error) {
 			}
 			return nil
 		}
+		// Only ordinary files are rendered. A symlink in a template - which is
+		// something a remote one could carry - would otherwise read whatever it
+		// pointed at and write the contents into the project.
+		if !d.Type().IsRegular() {
+			return nil
+		}
 		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return err
@@ -242,7 +280,11 @@ func (t *Template) expand(from string) ([]source, error) {
 }
 
 func (t *Template) writeFile(def FileDef, src source, ctx Ctx, w *render.Writer) error {
-	data, err := os.ReadFile(filepath.Join(t.dir, filepath.FromSlash(src.path)))
+	from, err := t.sourceFile(src.path)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(from)
 	if err != nil {
 		return err
 	}
@@ -289,10 +331,8 @@ func (t *Template) writeFile(def FileDef, src source, ctx Ctx, w *render.Writer)
 		mode = render.ExecutableMode(dest)
 		// A source file that is executable stays executable, so a template can
 		// ship a script without spelling out its mode.
-		if info, err := os.Stat(filepath.Join(t.dir, filepath.FromSlash(src.path))); err == nil {
-			if info.Mode()&0o111 != 0 {
-				mode = 0o755
-			}
+		if info, err := os.Stat(from); err == nil && info.Mode()&0o111 != 0 {
+			mode = 0o755
 		}
 	}
 	return w.WriteBytes(dest, content, mode)

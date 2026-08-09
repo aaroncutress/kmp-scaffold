@@ -21,14 +21,83 @@ kmp-scaffold new my-api --template ktor-service
 | Ref | Means |
 | --- | --- |
 | `kmp-mobile` | a built-in template |
-| `ktor-service` | a template in your templates folder |
+| `ktor-service` | one in your templates folder, or one already fetched |
 | `./templates/my-thing` | a directory, relative or absolute |
+| `github:owner/repo` | a git repository — see [below](#templates-from-a-git-repository) |
 
 When more than one template is available, the wizard asks which to use before
 anything else — the answer decides what the rest of the questions are.
 
 Whichever built the project is recorded in its `.kmp-scaffold.json`, so a later
-`kmp-scaffold add` extends it the way it was made.
+`kmp-scaffold add` extends it the way it was made — and for a remote template,
+at the exact commit it was built from, not at whatever the branch points at
+today.
+
+## Templates from a git repository
+
+```bash
+kmp-scaffold templates add github:acme/templates          # fetch and review it
+kmp-scaffold new my-api --template ktor-service           # then use it by name
+```
+
+or in one step, `--template github:acme/templates`. The forms a ref takes:
+
+| Ref | Means |
+| --- | --- |
+| `github:acme/templates` | the default branch |
+| `github:acme/templates@v2` | a tag, branch or commit |
+| `github:acme/templates/services/ktor` | a directory inside the repository |
+| `gitlab:acme/templates@main` | GitLab |
+| `https://git.example.com/t/tmpl.git//service@v2` | any git remote; `//` separates the directory |
+| `git@github.com:acme/templates.git@v2` | over SSH |
+| `file:///srv/templates` | a repository on this machine |
+
+Fetching shells out to `git`, so it uses your existing credentials and says so
+plainly if `git` is not installed.
+
+### Reviewing what you fetch
+
+A template writes files into your project, so the first time a given **commit**
+is used you are shown what it would do and asked:
+
+```
+A template from the internet
+
+  Template   Ktor service  (ktor-service)
+  From       https://github.com/acme/templates.git
+  Commit     d722a1a14af0b4dbc96121b12b4ef4a27e66f31b
+  Writes     6 file(s), and inserts into existing ones in 2 place(s)
+  Can add    route
+  Runs       nothing - templates cannot execute commands
+
+Use this template? [y/N]
+```
+
+Say yes and that commit is recorded in `~/.config/kmp-scaffold/trusted.json`.
+The answer is about the commit, not the repository: the same template at a later
+commit is a different set of files, and is asked about again.
+
+`--trust` accepts without asking, for CI. It is deliberately **not** implied by
+`--yes` — "do not ask me the wizard's questions" and "run files from the
+internet without looking" are different decisions, and a script should not
+acquire the second by asking for the first.
+
+The strongest part of this is what a template *cannot* do: there is no `run =`,
+no shell hook, no post-generate step. A template writes files and inserts at
+anchors. That is why the prompt can honestly say "Runs nothing".
+
+### The cache
+
+Fetched templates go under `${XDG_CACHE_HOME:-~/.cache}/kmp-scaffold/templates/`,
+keyed by the commit they resolved to. A tag or a commit is never re-fetched; a
+branch is re-checked once a day, or immediately with `--refresh`. `--offline`
+never touches the network, and says so if what you asked for is not cached.
+
+```bash
+kmp-scaffold templates                       # built-in, yours, and fetched
+kmp-scaffold templates add <ref> --refresh   # take the latest commit
+kmp-scaffold templates remove <ref>          # drop it, and forget it was reviewed
+```
 
 ## Your templates folder
 
@@ -390,7 +459,10 @@ Worth stating plainly, because it is where the format stops and Go begins:
   general fetch primitive is the hole the format otherwise does not have.
 - **Run commands.** There is no `run =`, and there will not be one without a
   separate opt-in. A template writes files and inserts at anchors; that is all
-  it can do.
+  it can do — which is what makes a template from a stranger's repository a
+  reasonable thing to run at all.
+- **Read outside itself.** A `from` that points out of the template directory,
+  or a symlink that does, is refused rather than followed.
 - **Remove or rename.** A recipe adds. Undoing one is `git checkout`.
 
 If you need any of those, write a Go template — see

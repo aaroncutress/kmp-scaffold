@@ -16,6 +16,7 @@ import (
 	"github.com/aaroncutress/kmp-scaffold/internal/render"
 	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
 	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
+	"github.com/aaroncutress/kmp-scaffold/internal/scaffold/filetmpl"
 	"github.com/aaroncutress/kmp-scaffold/internal/tui"
 )
 
@@ -57,6 +58,8 @@ Flags:
 		kotlinVer  = fs.String("kotlin", "", "Pin the Kotlin version")
 		agpVer     = fs.String("agp", "", "Pin the Android Gradle Plugin version")
 		offline    = fs.Bool("offline", false, "Skip version resolution and use the built-in baseline")
+		refresh    = fs.Bool("refresh", false, "Re-fetch a remote template instead of using the cached copy")
+		trust      = fs.Bool("trust", false, "Use a remote template without being asked to review it")
 		yes        = fs.Bool("yes", false, "Skip the wizard and accept the defaults")
 		dryRun     = fs.Bool("dry-run", false, "Report what would be written without writing it")
 		force      = fs.Bool("force", false, "Overwrite files that already exist")
@@ -71,6 +74,11 @@ Flags:
 	// list rather than being indistinguishable from not passing it at all.
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+
+	// A remote template is fetched as it is loaded, so how that fetch behaves
+	// has to be settled first.
+	filetmpl.SetFetchOptions(filetmpl.FetchOptions{Refresh: *refresh, Offline: *offline})
+	filetmpl.TrustEverything(*trust)
 
 	// The template decides what the remaining questions are, so it has to be
 	// chosen before the wizard can be built.

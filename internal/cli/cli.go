@@ -9,10 +9,11 @@ import (
 	"os"
 	"strings"
 
-	// filetmpl installs the loader for templates that are directories rather
-	// than Go code. It is imported for that effect alone: internal/scaffold
-	// cannot depend on the packages that implement templates, so the one place
-	// that knows about both wires them together.
+	// filetmpl implements templates that are directories rather than Go code,
+	// and installs itself as the loader for them from its own init. Nothing in
+	// this file calls it, but internal/scaffold cannot depend on the packages
+	// that implement templates, so the one place that knows about both is what
+	// wires them together.
 	_ "github.com/aaroncutress/kmp-scaffold/internal/scaffold/filetmpl"
 )
 
@@ -30,6 +31,7 @@ Usage:
   kmp-scaffold add <what> [name]      Apply a template recipe and wire it in
   kmp-scaffold add library <pack>...  Add a library pack to the version catalog
   kmp-scaffold templates [name]       List the templates new can generate from
+  kmp-scaffold templates add <ref>    Fetch a template from a git repository
   kmp-scaffold versions               Show which dependencies have newer releases
   kmp-scaffold version                Print the kmp-scaffold version
 
@@ -40,6 +42,8 @@ change without touching anything.`
 
 // Run dispatches a command line. It returns the process exit code.
 func Run(ctx context.Context, args []string) int {
+	installTrustPrompt()
+
 	if len(args) == 0 {
 		fmt.Println(usage)
 		return 0

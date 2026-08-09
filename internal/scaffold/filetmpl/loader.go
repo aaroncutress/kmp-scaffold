@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 )
@@ -15,6 +16,26 @@ func init() { scaffold.SetLoader(Loader{}) }
 
 // Loader resolves template refs that are not compiled in.
 type Loader struct{}
+
+// fetchOpts is how the next remote fetch behaves. `new --refresh` and
+// `--offline` set it, because the ref itself says nothing about either.
+var (
+	fetchMu   sync.RWMutex
+	fetchOpts FetchOptions
+)
+
+// SetFetchOptions controls the next remote fetch.
+func SetFetchOptions(opts FetchOptions) {
+	fetchMu.Lock()
+	defer fetchMu.Unlock()
+	fetchOpts = opts
+}
+
+func currentFetchOptions() FetchOptions {
+	fetchMu.RLock()
+	defer fetchMu.RUnlock()
+	return fetchOpts
+}
 
 // Load returns the template a ref names.
 //
@@ -32,23 +53,75 @@ func (Loader) Load(ref string) (scaffold.Template, error) {
 		return Open(dir, scaffold.Source{Kind: scaffold.SourcePath, Ref: ref})
 
 	case isRemote(ref):
-		return nil, fmt.Errorf(
-			"%s is a remote template, which this build cannot fetch yet - "+
-				"clone it and pass the directory instead", ref)
+		parsed, ok := ParseRef(ref)
+		if !ok {
+			return nil, fmt.Errorf("%s is not a template reference this build understands - "+
+				"run `kmp-scaffold templates --help` for the forms it takes", ref)
+		}
+		return OpenRemote(parsed, currentFetchOptions())
 	}
 
 	dir := filepath.Join(UserDir(), ref)
 	if _, err := os.Stat(filepath.Join(dir, ManifestFile)); err == nil {
 		return Open(dir, scaffold.Source{Kind: scaffold.SourceUser, Ref: ref})
 	}
+
+	// A bare name may be a remote template already in the cache, offered by
+	// whatever id its own manifest gives.
+	for _, c := range cachedList() {
+		if c.Template.Meta().ID == ref {
+			return c.Template, nil
+		}
+	}
 	return nil, nil
 }
 
-// Discover lists the templates in the user's templates folder.
+// OpenRemote fetches a template from a git repository and, the first time a
+// given commit is used, asks whether to trust it.
+func OpenRemote(ref Ref, opts FetchOptions) (*Template, error) {
+	fetched, err := Fetch(ref, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	t, err := Open(fetched.Dir, scaffold.Source{
+		Kind:     scaffold.SourceRemote,
+		Ref:      ref.Raw,
+		Revision: fetched.Revision,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := confirm(ref, fetched, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// Discover lists the templates that can be generated from by name: the user's
+// own, and any remote one already fetched.
 //
 // One that will not parse is skipped rather than being an error: a half-written
 // template in that folder must not stop `kmp-scaffold new` from working.
 func (Loader) Discover() []scaffold.Template {
+	out := userTemplates()
+
+	seen := map[string]bool{}
+	for _, t := range out {
+		seen[t.Meta().ID] = true
+	}
+	for _, c := range cachedList() {
+		if id := c.Template.Meta().ID; !seen[id] {
+			seen[id] = true
+			out = append(out, c.Template)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Meta().ID < out[j].Meta().ID })
+	return out
+}
+
+func userTemplates() []scaffold.Template {
 	entries, err := os.ReadDir(UserDir())
 	if err != nil {
 		return nil
@@ -69,8 +142,108 @@ func (Loader) Discover() []scaffold.Template {
 		}
 		out = append(out, t)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Meta().ID < out[j].Meta().ID })
 	return out
+}
+
+// Cached is a remote template already in the cache.
+type Cached struct {
+	Template *Template
+	Ref      Ref
+	Revision string
+}
+
+// CachedTemplates lists what has been fetched.
+func CachedTemplates() []Cached { return cachedList() }
+
+// cachedList walks the cache: <host>/<owner>/<repo>/refs.json names the commit
+// each ref resolved to, and the tree sits beside it under that commit.
+func cachedList() []Cached {
+	root := CacheDir()
+	if root == "" {
+		return nil
+	}
+
+	var out []Cached
+	seen := map[string]bool{}
+
+	// The layout is exactly three levels deep, so the walk stops there rather
+	// than descending into every cached tree.
+	hosts, _ := os.ReadDir(root)
+	for _, host := range hosts {
+		if !host.IsDir() {
+			continue
+		}
+		owners, _ := os.ReadDir(filepath.Join(root, host.Name()))
+		for _, owner := range owners {
+			if !owner.IsDir() {
+				continue
+			}
+			repos, _ := os.ReadDir(filepath.Join(root, host.Name(), owner.Name()))
+			for _, repo := range repos {
+				if !repo.IsDir() {
+					continue
+				}
+				repoDir := filepath.Join(root, host.Name(), owner.Name(), repo.Name())
+				for refName, entry := range readIndex(repoDir).Refs {
+					key := repoDir + "@" + entry.Revision + "//" + entry.Subdir
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+
+					ref := Ref{
+						Host: host.Name(), Owner: owner.Name(), Repo: repo.Name(),
+						Subdir: entry.Subdir,
+						URL:    fmt.Sprintf("https://%s/%s/%s.git", host.Name(), owner.Name(), repo.Name()),
+					}
+					if rev, _, _ := strings.Cut(refName, "//"); rev != "HEAD" {
+						ref.Rev = rev
+					}
+					ref.Raw = refText(ref)
+
+					dir := filepath.Join(repoDir, entry.Revision)
+					if entry.Subdir != "" {
+						dir = filepath.Join(dir, filepath.FromSlash(entry.Subdir))
+					}
+					t, err := Open(dir, scaffold.Source{
+						Kind: scaffold.SourceRemote, Ref: ref.Raw, Revision: entry.Revision,
+					})
+					if err != nil {
+						continue
+					}
+					out = append(out, Cached{Template: t, Ref: ref, Revision: entry.Revision})
+				}
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref.Raw < out[j].Ref.Raw })
+	return out
+}
+
+// refText renders a cached repository back into the shorthand a user would type.
+func refText(ref Ref) string {
+	var prefix string
+	switch ref.Host {
+	case "github.com":
+		prefix = "github:" + ref.Owner + "/" + ref.Repo
+	case "gitlab.com":
+		prefix = "gitlab:" + ref.Owner + "/" + ref.Repo
+	case "file":
+		prefix = "file:///" + strings.ReplaceAll(ref.Owner, "_", "/") + "/" + ref.Repo
+	default:
+		prefix = "https://" + ref.Host + "/" + ref.Owner + "/" + ref.Repo + ".git"
+	}
+	if ref.Subdir != "" {
+		if strings.Contains(prefix, "://") {
+			prefix += "//" + ref.Subdir
+		} else {
+			prefix += "/" + ref.Subdir
+		}
+	}
+	if ref.Rev != "" {
+		prefix += "@" + ref.Rev
+	}
+	return prefix
 }
 
 // Broken lists the directories in the user's templates folder that look like

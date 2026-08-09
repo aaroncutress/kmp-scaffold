@@ -96,6 +96,7 @@ kmp-scaffold new my-app \
 | `kmp-scaffold add <what> [name]` | Apply one of the template's recipes and wire it in — `add feature` on a Kotlin Multiplatform project. `add` alone lists them. |
 | `kmp-scaffold add library <pack>…` | Resolve and add a library pack to the version catalog. |
 | `kmp-scaffold templates [name]` | List the templates `new` can generate from, or show what one asks. |
+| `kmp-scaffold templates add <ref>` | Fetch a template from a git repository, after showing you what it does. |
 | `kmp-scaffold versions` | Report which dependencies have newer releases. |
 | `kmp-scaffold version` | Print the tool's version. |
 
@@ -107,7 +108,8 @@ its full flag list.
 
 - **[Getting started](docs/getting-started.md)** — the wizard, screen by screen.
 - **[Templates](docs/templates.md)** — using a template other than the default,
-  and writing one of your own without touching Go.
+  fetching one from a git repository, and writing one of your own without
+  touching Go.
 - **[Project layout](docs/project-layout.md)** — what each generated module is
   for, and why the navigation is split the way it is.
 - **[Adding features](docs/adding-features.md)** — feature modules, root tabs,

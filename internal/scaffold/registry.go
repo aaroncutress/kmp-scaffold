@@ -126,12 +126,41 @@ func LoadFor(ref model.TemplateRef) (Template, error) {
 	if ref.ID == "" {
 		return nil, fmt.Errorf("this project does not record which template generated it")
 	}
-	if ref.Source != "" && ref.Source != string(SourceBuiltin) {
-		if t, err := Load(ref.Source); err == nil {
+	if source := ref.Source; source != "" && source != string(SourceBuiltin) {
+		// A remote is loaded at the commit the project was generated from, not
+		// at whatever the branch points at today. Adding to a project two years
+		// later has to use the template that built it.
+		if ref.Revision != "" {
+			if at, ok := pinned(source, ref.Revision); ok {
+				if t, err := Load(at); err == nil {
+					return t, nil
+				}
+			}
+		}
+		if t, err := Load(source); err == nil {
 			return t, nil
 		}
 	}
 	return Load(ref.ID)
+}
+
+// pinned rewrites a ref to name an exact commit, replacing whatever revision it
+// carried. It reports false for a ref with no revision to replace - a path, or
+// a bare name - where the commit means nothing.
+func pinned(source, revision string) (string, bool) {
+	if !strings.Contains(source, ":") && !strings.Contains(source, "/") {
+		return "", false
+	}
+	if strings.HasPrefix(source, ".") || strings.HasPrefix(source, "/") ||
+		strings.HasPrefix(source, "~") {
+		return "", false
+	}
+	// The revision is whatever follows the last @, which cannot appear in a
+	// repository path.
+	if i := strings.LastIndex(source, "@"); i > strings.Index(source, "//") {
+		source = source[:i]
+	}
+	return source + "@" + revision, true
 }
 
 // All lists every template that can be generated from without being named by

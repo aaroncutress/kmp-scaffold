@@ -218,3 +218,54 @@ kmp-scaffold add feature billing --dry-run
 
 Both list every file that would be created and every file that would be edited,
 and write nothing.
+
+## Remote templates
+
+### "has not been used before"
+
+```
+error: github:acme/templates has not been used before, and there is no terminal
+       to ask on - run it once interactively to review it, or pass --trust
+```
+
+The first use of a given commit of a remote template shows you what it would do
+and asks. In CI there is nobody to ask, so pass `--trust`. That is deliberately
+separate from `--yes`: a script that only wants to skip the wizard should not
+also be accepting files from the internet unseen.
+
+Reviewing it once on your own machine also works — the accepted commit is
+recorded in `~/.config/kmp-scaffold/trusted.json`, which you can commit to a
+dotfiles repository if you want the decision to travel with you.
+
+### It is still using an old version of the template
+
+By design. A project records the commit it was generated from, and
+`kmp-scaffold add` loads that same commit, so a template moving on does not
+change what `add` does to a project already built from it.
+
+To move a project to a newer template, fetch it and generate against the new
+one:
+
+```bash
+kmp-scaffold templates add github:acme/templates --refresh
+```
+
+then edit `template.revision` in the project's `.kmp-scaffold.json`, or remove
+it to follow whatever the ref points at.
+
+### "could not read Username for 'https://github.com'"
+
+Fetching runs `git clone`, with prompts disabled so a non-interactive run cannot
+hang. A private repository needs credentials git can use without asking: an SSH
+ref (`git@github.com:owner/repo.git`), a credential helper, or a token in the
+URL.
+
+### "needs git on your PATH"
+
+Fetching shells out to `git`. Install it, or clone the template yourself and
+pass the directory:
+
+```bash
+git clone https://github.com/acme/templates
+kmp-scaffold new my-api --template ./templates/services/ktor
+```

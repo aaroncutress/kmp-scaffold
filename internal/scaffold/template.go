@@ -159,9 +159,13 @@ type GenRequest struct {
 
 // Report summarises what a generation run did.
 type Report struct {
-	Writer   *render.Writer
-	Wire     []wire.Result
+	Writer *render.Writer
+	Wire   []wire.Result
+	// Warnings are things that did not happen. Notes are things that did, and
+	// that the reader would not otherwise see - a catalog the recipe edited,
+	// say, which is not one of its own files.
 	Warnings []string
+	Notes    []string
 	Manifest model.Manifest
 }
 

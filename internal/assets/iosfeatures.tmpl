@@ -82,6 +82,7 @@ let package = Package(
         // own views, add it to this list yourself.
         .testTarget(name: "FeatureTests", dependencies: ["CoreNavigation"]),
 {{- end }}
+        // kmp-scaffold:ios-test-target
     ],
 {{- if eq .Spec.SwiftMode "5" }}
     // Swift 5 language mode. Kotlin/Native exports its classes to Objective-C

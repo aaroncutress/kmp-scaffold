@@ -278,6 +278,33 @@ a job on macOS that assembles the XCFramework and builds the app for a
 simulator. It builds with `xcodebuild -target` rather than `-scheme`, because
 Xcode creates schemes on first open and they are not committed.
 
+### Adding them later
+
+Saying no is not permanent. Months into a project:
+
+```bash
+kmp-scaffold add tests
+kmp-scaffold add ci
+```
+
+Each writes the files that option owns, adds its dependencies to the build
+scripts and its entries to `libs.versions.toml`, and records the new answer so
+`add feature` and `versions` agree with it. The result is the project you would
+have had if you had said yes at the start — the round trip is checked by a test
+that compares whole trees.
+
+Nothing you have written is overwritten. A file that already exists and differs
+is left alone and what would have been written lands beside it as `.new`, for
+you to diff and merge. A file that is still exactly what this tool wrote — an
+untouched CI workflow, say — is updated in place, which is how `add tests` gets
+the workflow to run the tests it just added.
+
+The build scripts carry anchor comments (`// kmp-scaffold:test-deps` and two
+others) whatever you answered, which is what gives the retrofit somewhere to
+insert. A project generated before those anchors existed still works: the
+missing ones are reported with the exact lines to paste, and everything else is
+applied.
+
 ## Editor and git configuration
 
 Three small files, written whatever else you chose:
@@ -291,6 +318,9 @@ Three small files, written whatever else you chose:
 - **`.gitignore`** — build output, `local.properties`, `secrets.properties`,
   SwiftPM's `.build/` and the generated `Frameworks/`. It deliberately does not
   ignore the Gradle wrapper or `.run/`: both are committed.
+
+A project generated before these existed gets them with
+`kmp-scaffold add editorconfig`.
 
 `.gitattributes` deliberately leaves `project.pbxproj` as ordinary text.
 `merge=union` is often suggested for it and does resolve conflicts

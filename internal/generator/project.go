@@ -14,6 +14,18 @@ import (
 )
 
 // Engine builds the shared template engine.
+// NewEnv builds a rendering environment for a spec.
+//
+// NewProject and AddFeature build their own; this is for a recipe that renders
+// a handful of the same templates into a project that already exists.
+func NewEnv(spec model.Spec, res *resolve.Result, version string, w *render.Writer) (*Env, error) {
+	engine, err := Engine()
+	if err != nil {
+		return nil, err
+	}
+	return &Env{Ctx: NewCtx(spec, res, version), Engine: engine, Writer: w}, nil
+}
+
 func Engine() (*render.Engine, error) {
 	return render.NewEngine(assets.FS())
 }

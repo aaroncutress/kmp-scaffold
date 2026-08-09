@@ -673,11 +673,20 @@ func mustApply(t *testing.T, tmpl scaffold.Template, root, recipe, name string,
 func TestRecipeWritesFilesAndWiresThemIn(t *testing.T) {
 	tmpl := open(t, exampleDir)
 
-	if len(tmpl.Recipes()) != 1 || tmpl.Recipes()[0].Name != "route" {
-		t.Fatalf("recipes = %+v, want just `route`", tmpl.Recipes())
+	// The example offers a named recipe and a singleton one, which is the whole
+	// range a template can declare.
+	route, ok := scaffold.FindRecipe(tmpl, "route")
+	if !ok {
+		t.Fatalf("recipes = %+v, want one called `route`", tmpl.Recipes())
 	}
-	if got := tmpl.Recipes()[0].NounOr(); got != "route" {
+	if route.Singleton {
+		t.Error("a route is a named thing, not a singleton")
+	}
+	if got := route.NounOr(); got != "route" {
 		t.Errorf("noun = %q - the template names what it adds, not the tool", got)
+	}
+	if tests, ok := scaffold.FindRecipe(tmpl, "tests"); !ok || !tests.Singleton {
+		t.Errorf("recipes = %+v, want a singleton called `tests`", tmpl.Recipes())
 	}
 
 	a := tmpl.NewAnswers()

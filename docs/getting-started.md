@@ -61,11 +61,17 @@ Saying no leaves nothing behind — no test directories, no `testImplementation`
 lines, and no testing entries in `libs.versions.toml`. Saying yes is the
 default, and `./gradlew :sharedLogic:allTests` has something to run immediately.
 
+Saying no is not permanent either: `kmp-scaffold add tests` puts all of it into
+an existing project later, without touching anything you have written. See
+[adding them later](kmp-mobile/project-layout.md#adding-them-later).
+
 ### 5. CI workflow
 
 Whether to write `.github/workflows/ci.yml`: a build on every pull request and
 on the default branch, with a macOS job building the iOS side when the project
 has one. It runs the tests too, if you asked for them.
+
+`kmp-scaffold add ci` adds it to a project that went without.
 
 ### 6. Package
 

@@ -148,6 +148,9 @@ const (
 	Overwritten Status = "overwritten"
 	// Skipped means the file already existed and was left alone.
 	Skipped Status = "skipped"
+	// Sidecar means the file already existed and differed, so what would have
+	// been written was put beside it with a .new suffix instead.
+	Sidecar Status = "sidecar"
 	// Unchanged means the file existed with identical content.
 	Unchanged Status = "unchanged"
 	// Planned means a dry run would have written the file.
@@ -161,6 +164,15 @@ type Writer struct {
 	DryRun bool
 	// Force overwrites files that already exist.
 	Force bool
+	// Sidecars writes "<path>.new" beside a file that already exists and
+	// differs, rather than only reporting the collision.
+	//
+	// It is off for `new`, where a collision means the directory was not empty
+	// and the answer is to pick another one. It is on for a recipe retrofitting
+	// something into a project that has been worked on for months, where the
+	// useful thing is to be able to diff what you have against what this would
+	// have written.
+	Sidecars bool
 
 	actions []Action
 }
@@ -213,6 +225,9 @@ func (w *Writer) WriteBytes(rel string, content []byte, mode fs.FileMode) error 
 		w.actions = append(w.actions, Action{rel, Unchanged})
 		return nil
 	case err == nil && !w.Force:
+		if w.Sidecars {
+			return w.writeSidecar(rel, abs, content, mode)
+		}
 		w.actions = append(w.actions, Action{rel, Skipped})
 		return nil
 	}
@@ -234,6 +249,37 @@ func (w *Writer) WriteBytes(rel string, content []byte, mode fs.FileMode) error 
 	}
 	w.actions = append(w.actions, Action{rel, status})
 	return nil
+}
+
+// writeSidecar puts content beside an existing file rather than over it.
+//
+// The original is never touched. A stale .new from a previous run is replaced,
+// because it is this tool's file and the point of it is to describe the current
+// state rather than some earlier one.
+func (w *Writer) writeSidecar(rel, abs string, content []byte, mode fs.FileMode) error {
+	if w.DryRun {
+		w.actions = append(w.actions, Action{rel, Sidecar})
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return fmt.Errorf("creating directory for %s: %w", rel, err)
+	}
+	if err := os.WriteFile(abs+".new", content, mode); err != nil {
+		return fmt.Errorf("writing %s.new: %w", rel, err)
+	}
+	w.actions = append(w.actions, Action{rel, Sidecar})
+	return nil
+}
+
+// Sidecars lists the paths written beside an existing file rather than over it.
+func (w *Writer) SidecarPaths() []string {
+	var out []string
+	for _, a := range w.actions {
+		if a.Status == Sidecar {
+			out = append(out, a.Path)
+		}
+	}
+	return out
 }
 
 // Render renders a template and writes it in one step.

@@ -178,8 +178,11 @@ func RecipeFlow(r scaffold.Recipe, m *model.Manifest, answers *scaffold.Answers)
 		hint = "Lowercase kebab-case, e.g. firmware-update."
 	}
 
-	steps := []Step{
-		&TextStep{
+	// A singleton has nothing to be called, so the tool's one question does not
+	// apply and the wizard starts with whatever the recipe asks.
+	var steps []Step
+	if !r.Singleton {
+		steps = append(steps, &TextStep{
 			Prompt:  fmt.Sprintf("What is the %s called?", noun),
 			Hint:    hint,
 			Default: func(a *scaffold.Answers) string { return a.Str(scaffold.NameAnswer) },
@@ -193,14 +196,18 @@ func RecipeFlow(r scaffold.Recipe, m *model.Manifest, answers *scaffold.Answers)
 				return nil
 			},
 			Apply: func(a *scaffold.Answers, v string) { a.Set(scaffold.NameAnswer, model.Kebab(v)) },
-		},
+		})
 	}
 
 	if r.Questions != nil {
 		steps = append(steps, StepsFor(r.Questions(m))...)
 	}
+	heading := fmt.Sprintf("Ready to add the %s", noun)
+	if r.Singleton {
+		heading = fmt.Sprintf("Ready to add %s", noun)
+	}
 	steps = append(steps, &SummaryStep{
-		Heading: fmt.Sprintf("Ready to add the %s", noun),
+		Heading: heading,
 		Action:  "create",
 		Sections: func(a *scaffold.Answers) []scaffold.Section {
 			if r.Summary == nil {

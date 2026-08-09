@@ -5,6 +5,11 @@ it generated, so what `add feature` writes is this template's business. Another
 template offers whatever recipes it declares — `kmp-scaffold add` with no
 arguments lists them.
 
+This template offers four: `feature`, and the three that turn on something the
+project was generated without —
+[`tests`, `ci` and `editorconfig`](project-layout.md#adding-them-later). Those
+take no name, because there is one of each in a project.
+
 ```bash
 cd my-app
 kmp-scaffold add feature

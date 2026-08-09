@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aaroncutress/kmp-scaffold/internal/model"
 	"github.com/aaroncutress/kmp-scaffold/internal/render"
 	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
 	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
@@ -328,5 +329,96 @@ func TestUndeclaredSupportAnswersNo(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
 			t.Errorf("%s was written by a template that declares no support", rel)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Singleton recipes
+// ---------------------------------------------------------------------------
+
+// A file-based template declares a retrofit the same way it declares anything
+// else: a recipe with files and edits, marked singleton because there is one of
+// it. Nothing in the tool is specific to tests or CI.
+func TestSingletonRecipe(t *testing.T) {
+	dir := write(t, map[string]string{
+		"template.toml": `
+schema = 1
+
+[template]
+id = "svc"
+name = "Service"
+supports_tests = true
+
+[[files]]
+from = "files/build.txt"
+to = "build.txt"
+
+[[files]]
+from = "files/test.txt"
+to = "test.txt"
+when = "{{ .Tests }}"
+
+[recipes.tests]
+label     = "Tests"
+noun      = "tests"
+singleton = true
+
+  [[recipes.tests.files]]
+  from = "files/test.txt"
+  to   = "test.txt"
+
+  [[recipes.tests.edits]]
+  path   = "build.txt"
+  anchor = "scaffold:test-deps"
+  lines  = ["testImplementation(\"junit\")"]
+`,
+		"files/build.txt": "dependencies\n// scaffold:test-deps\n",
+		"files/test.txt":  "a test\n",
+	})
+
+	tmpl := open(t, dir)
+	recipe, ok := scaffold.FindRecipe(tmpl, "tests")
+	if !ok {
+		t.Fatal("the template declares a tests recipe")
+	}
+	if !recipe.Singleton {
+		t.Error("singleton = true did not reach the recipe")
+	}
+	if recipe.NounOr() != "tests" {
+		t.Errorf("noun = %q", recipe.NounOr())
+	}
+
+	// Generate without tests, so the retrofit has something to do.
+	a := tmpl.NewAnswers()
+	a.Project.Name = "Thing"
+	a.Tests = false
+	root := generate(t, tmpl, a)
+	if _, err := os.Stat(filepath.Join(root, "test.txt")); err == nil {
+		t.Fatal("the test file was written for a project that declined tests")
+	}
+
+	manifest, _, err := model.LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := tmpl.NewAnswers()
+	applied.Project = manifest.Project
+	if _, err := recipe.Apply(context.Background(), scaffold.RecipeRequest{
+		Recipe:   recipe.Name,
+		Manifest: manifest,
+		Root:     root,
+		Name:     recipe.Name,
+		Answers:  applied,
+		Writer:   render.NewWriter(root, false, false),
+		Version:  "test",
+	}); err != nil {
+		t.Fatalf("applying the recipe: %v", err)
+	}
+
+	if got := read(t, root, "test.txt"); got != "a test\n" {
+		t.Errorf("test.txt = %q", got)
+	}
+	if got := read(t, root, "build.txt"); !strings.Contains(got, `testImplementation("junit")`) {
+		t.Errorf("the edit did not land: %q", got)
 	}
 }

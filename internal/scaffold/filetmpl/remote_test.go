@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -298,7 +299,7 @@ func TestRemoteTemplateNeedsTrust(t *testing.T) {
 	if shown.ID != "ktor-service" || shown.Files == 0 || len(shown.Revision) != 40 {
 		t.Errorf("the prompt was not told enough to decide on: %+v", shown)
 	}
-	if len(shown.Recipes) != 1 || shown.Recipes[0] != "route" || shown.Edits == 0 {
+	if !slices.Contains(shown.Recipes, "route") || shown.Edits == 0 {
 		t.Errorf("the prompt does not mention what it can add: %+v", shown)
 	}
 }

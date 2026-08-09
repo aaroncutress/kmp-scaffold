@@ -49,6 +49,8 @@ tool.
   [how resolution works](kmp-mobile/libraries.md#how-resolution-works).
 - **"how do I turn off the tests / the CI workflow?"** —
   [getting started](getting-started.md#4-tests), or `--no-tests` / `--no-ci`.
+- **"I said no and now I want them"** — `kmp-scaffold add tests` / `add ci`; see
+  [adding them later](kmp-mobile/project-layout.md#adding-them-later).
 - **"which Swift / Java / iOS version does it target?"** —
   [what you target](kmp-mobile/libraries.md#what-you-target), and
   [the Swift toolchain](kmp-mobile/ios-architecture.md#the-swift-toolchain).

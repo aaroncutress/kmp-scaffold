@@ -72,6 +72,11 @@ type RecipeDef struct {
 	Noun string `toml:"noun"`
 	// NameHint is shown under the "what is it called?" question.
 	NameHint string `toml:"name_hint"`
+	// Singleton marks a recipe that adds one thing rather than a named one -
+	// test source sets, a CI workflow. No name is asked for, and applying it
+	// twice is refused. This is how an option offered at generation time stays
+	// available afterwards.
+	Singleton bool `toml:"singleton"`
 
 	Question []QuestionDef  `toml:"questions"`
 	File     []FileDef      `toml:"files"`

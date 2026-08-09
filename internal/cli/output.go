@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -37,6 +38,7 @@ func printWriteSummary(w *render.Writer, verbose bool) {
 	skipped := w.Count(render.Skipped)
 	unchanged := w.Count(render.Unchanged)
 	planned := w.Count(render.Planned)
+	sidecars := w.Count(render.Sidecar)
 
 	if verbose || planned > 0 {
 		for _, a := range w.Actions() {
@@ -47,6 +49,9 @@ func printWriteSummary(w *render.Writer, verbose bool) {
 				fmt.Printf("  %s %s\n", sWarn.Render("~"), a.Path)
 			case render.Skipped:
 				fmt.Printf("  %s %s %s\n", sWarn.Render("!"), a.Path, sMuted.Render("(exists, left alone)"))
+			case render.Sidecar:
+				fmt.Printf("  %s %s %s\n", sWarn.Render("!"), a.Path+".new",
+					sMuted.Render("(yours was left alone)"))
 			}
 		}
 		fmt.Println()
@@ -68,6 +73,9 @@ func printWriteSummary(w *render.Writer, verbose bool) {
 	if skipped > 0 {
 		parts = append(parts, fmt.Sprintf("%d skipped", skipped))
 	}
+	if sidecars > 0 {
+		parts = append(parts, fmt.Sprintf("%d written alongside", sidecars))
+	}
 	if len(parts) > 0 {
 		fmt.Println(sMuted.Render(strings.Join(parts, ", ")))
 	}
@@ -79,6 +87,16 @@ func printWriteSummary(w *render.Writer, verbose bool) {
 			fmt.Println("  " + p)
 		}
 		fmt.Println(sMuted.Render("Re-run with --force to overwrite them."))
+	}
+
+	if sidecars > 0 {
+		fmt.Println()
+		fmt.Println(sWarn.Render("These already existed, so what would have been written is beside them:"))
+		for _, p := range w.SidecarPaths() {
+			fmt.Printf("  %s  %s\n", p+".new", sMuted.Render("← compare against "+path.Base(p)))
+		}
+		fmt.Println(sMuted.Render(
+			"Diff them, take what you want, and delete the .new files. --force overwrites instead."))
 	}
 }
 

@@ -5,7 +5,7 @@
 .kmp-scaffold.json  4483777f31e17282
 .run/androidApp.run.xml  65d0de9fbbeff68d
 README.md  abf725fdea3d5b01
-androidApp/build.gradle.kts  d552106ba561dc9a
+androidApp/build.gradle.kts  b892785a39d4be5f
 androidApp/proguard-rules.pro  717e556350432a10
 androidApp/src/main/AndroidManifest.xml  44680370ce057830
 androidApp/src/main/kotlin/io/kontour/tunesic/App.kt  ee77655ebc9f3f3e
@@ -49,7 +49,7 @@ gradle.properties  b315554ce039fd7a
 gradle/libs.versions.toml  5fa1e3177ce978d0
 gradle/wrapper/gradle-wrapper.properties  1d126b2f29d1a878
 settings.gradle.kts  b5f011b5ce30838f
-sharedLogic/build.gradle.kts  29a34383fdd0de93
+sharedLogic/build.gradle.kts  eecc2cd90039a482
 sharedLogic/src/androidMain/kotlin/io/kontour/tunesic/core/util/Platform.android.kt  47cccbef8a7dba4b
 sharedLogic/src/commonMain/kotlin/io/kontour/tunesic/core/util/Platform.kt  ab87f17922745237
 sharedLogic/src/commonTest/kotlin/io/kontour/tunesic/core/util/PlatformTest.kt  ac89d91557fadb7f

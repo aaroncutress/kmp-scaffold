@@ -8,7 +8,7 @@
 .run/androidApp.run.xml  65d0de9fbbeff68d
 .run/iosApp.run.xml  edaac8a32948d884
 README.md  0a5c5de8a684735c
-androidApp/build.gradle.kts  1cb7eaa73918755f
+androidApp/build.gradle.kts  889cef843f69a9da
 androidApp/proguard-rules.pro  717e556350432a10
 androidApp/src/main/AndroidManifest.xml  c62c90e13baa0f67
 androidApp/src/main/kotlin/io/kontour/tunesic/App.kt  d0a7bc552a9509b2
@@ -67,7 +67,7 @@ iosApp/iosApp/Preview Content/Preview Assets.xcassets/Contents.json  0fd49ba3c35
 iosApp/iosApp/iOSApp.swift  5b293855fb33f74b
 secrets.properties.template  1f49679becb9c3b1
 settings.gradle.kts  b5f011b5ce30838f
-sharedLogic/build.gradle.kts  482497d536d41db0
+sharedLogic/build.gradle.kts  0f932f8cc2c89177
 sharedLogic/schemas/.gitkeep  01ba4719c80b6fe9
 sharedLogic/src/androidMain/kotlin/io/kontour/tunesic/core/database/DatabaseBuilder.android.kt  d9bdb12060240749
 sharedLogic/src/androidMain/kotlin/io/kontour/tunesic/core/util/NetworkObserver.android.kt  4e19890d45cae973

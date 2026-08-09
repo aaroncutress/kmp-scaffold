@@ -8,7 +8,7 @@
 .run/androidApp.run.xml  65d0de9fbbeff68d
 .run/iosApp.run.xml  edaac8a32948d884
 README.md  fa0add1335787f8c
-androidApp/build.gradle.kts  e49e605146e455ce
+androidApp/build.gradle.kts  b4bea15cca44eabf
 androidApp/proguard-rules.pro  717e556350432a10
 androidApp/src/main/AndroidManifest.xml  c62c90e13baa0f67
 androidApp/src/main/kotlin/io/kontour/tunesic/App.kt  d0a7bc552a9509b2
@@ -55,7 +55,7 @@ gradle.properties  b315554ce039fd7a
 gradle/libs.versions.toml  5875e84352170413
 gradle/wrapper/gradle-wrapper.properties  1d126b2f29d1a878
 iosApp/Configuration/Config.xcconfig  bb4238f31b3fda55
-iosApp/Packages/Features/Package.swift  f100b431db8e4d44
+iosApp/Packages/Features/Package.swift  3d196b7f9cde8ba6
 iosApp/Packages/Features/Sources/CoreNavigation/HomeRoute.swift  1d05e62ce92d8f92
 iosApp/Packages/Features/Sources/CoreNavigation/Resolve.swift  b1b646dcffd992f9
 iosApp/Packages/Features/Sources/CoreNavigation/SettingsRoute.swift  ec0fe37284f8add6
@@ -76,7 +76,7 @@ iosApp/iosApp/Info.plist  55515960b0fd0fac
 iosApp/iosApp/Preview Content/Preview Assets.xcassets/Contents.json  0fd49ba3c3585c70
 secrets.properties.template  1f49679becb9c3b1
 settings.gradle.kts  b5f011b5ce30838f
-sharedLogic/build.gradle.kts  03202327a61a4603
+sharedLogic/build.gradle.kts  ccd715e523653070
 sharedLogic/schemas/.gitkeep  01ba4719c80b6fe9
 sharedLogic/src/androidMain/kotlin/io/kontour/tunesic/core/database/DatabaseBuilder.android.kt  d9bdb12060240749
 sharedLogic/src/androidMain/kotlin/io/kontour/tunesic/core/util/NetworkObserver.android.kt  4e19890d45cae973

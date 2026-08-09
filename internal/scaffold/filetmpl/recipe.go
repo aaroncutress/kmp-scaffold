@@ -31,6 +31,7 @@ func (t *Template) recipe(name string, def RecipeDef) scaffold.Recipe {
 		Label:       label,
 		Description: def.Description,
 		NameHint:    def.NameHint,
+		Singleton:   def.Singleton,
 
 		Questions: func(m *model.Manifest) []scaffold.Question {
 			// The conditions are evaluated against the project as it was

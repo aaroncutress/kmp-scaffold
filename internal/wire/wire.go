@@ -38,6 +38,18 @@ const (
 	// AnchorSharedModules is in sharedLogic's SharedModules.kt.
 	AnchorSharedModules = "kmp-scaffold:shared-modules"
 
+	// The retrofit anchors. Unlike the ones above these are written whether or
+	// not the thing they mark is there, because what needs them is `add tests`
+	// on a project generated without any - and an anchor that only exists once
+	// you already have the thing is no use to anybody.
+
+	// AnchorTestDeps is androidApp's dependencies block.
+	AnchorTestDeps = "kmp-scaffold:test-deps"
+	// AnchorSharedTestDeps is sharedLogic's sourceSets block.
+	AnchorSharedTestDeps = "kmp-scaffold:shared-test-deps"
+	// AnchorIOSTestTarget is the target list in Package.swift.
+	AnchorIOSTestTarget = "kmp-scaffold:ios-test-target"
+
 	// The iOS Features package and its coordinator.
 
 	// AnchorIOSProducts is the per-target product list in Package.swift.
@@ -82,6 +94,11 @@ type Result struct {
 	Inserted int
 	Skipped  int
 	Missing  bool
+	// Anchor and Lines describe what could not be applied, so a missing anchor
+	// can be reported as "paste this there" rather than as "do it yourself".
+	// Set only when Missing is true.
+	Anchor string
+	Lines  []string
 }
 
 // Applier batches edits so a dry run can report them without writing.
@@ -133,7 +150,9 @@ func (a *Applier) Apply(e Edit) error {
 	if e.Anchor != "" && len(e.Lines) > 0 {
 		updated, added, found := insertBeforeAnchor(content, e.Anchor, e.Lines, e.Key)
 		if !found {
-			a.results = append(a.results, Result{Path: e.Path, Missing: true})
+			a.results = append(a.results, Result{
+				Path: e.Path, Missing: true, Anchor: e.Anchor, Lines: e.Lines,
+			})
 			return nil
 		}
 		content = updated
@@ -156,6 +175,20 @@ func (a *Applier) MissingAnchors() []string {
 	for _, r := range a.results {
 		if r.Missing {
 			out = append(out, r.Path)
+		}
+	}
+	return out
+}
+
+// Unapplied returns the results whose anchor was not found, with the lines that
+// would have gone there. A project generated before an anchor existed - or one
+// whose owner reorganised the file - needs to be told what to paste, not only
+// that something did not happen.
+func (a *Applier) Unapplied() []Result {
+	var out []Result
+	for _, r := range a.results {
+		if r.Missing && len(r.Lines) > 0 {
+			out = append(out, r)
 		}
 	}
 	return out

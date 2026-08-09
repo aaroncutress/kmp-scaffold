@@ -17,7 +17,7 @@ const (
 
 // Recipes is what `kmp-scaffold add` can do to a project this template made.
 func (Template) Recipes() []scaffold.Recipe {
-	return []scaffold.Recipe{{
+	recipes := []scaffold.Recipe{{
 		Name:        "feature",
 		Noun:        "feature",
 		Label:       "Feature module",
@@ -27,6 +27,8 @@ func (Template) Recipes() []scaffold.Recipe {
 		Summary:     featureSummary,
 		Apply:       addFeature,
 	}}
+	// The options a project can be given after it was generated without them.
+	return append(recipes, retrofitRecipes()...)
 }
 
 // featureQuestions asks what the new module should cover and how its screen

@@ -159,6 +159,36 @@ when    = "{{ .Vars.docker }}"
 # Recipes: what `kmp-scaffold add` can do to a project this template generated.
 # ---------------------------------------------------------------------------
 
+# A singleton recipe: it adds one thing rather than a named one, so `add tests`
+# takes no name and can only be applied once. This is how an option offered at
+# generation time stays available six months later.
+#
+# Note the anchor it edits: build.gradle.kts writes `// kmp-scaffold:test-deps`
+# whether or not tests were generated, precisely so this can find it.
+[recipes.tests]
+label       = "Tests"
+description = "A test source set and the dependencies it needs, for a project generated without them."
+noun        = "tests"
+singleton   = true
+
+  [[recipes.tests.files]]
+  from = "files/test/ApplicationTest.kt.tmpl"
+  to   = "src/test/kotlin/{{ packagePath .Project.Package }}/ApplicationTest.kt"
+
+  [[recipes.tests.edits]]
+  path   = "build.gradle.kts"
+  anchor = "kmp-scaffold:test-deps"
+  key    = "ktor-server-test-host"
+  lines  = [
+    "testImplementation(kotlin(\"test\"))",
+    "testImplementation(\"io.ktor:ktor-server-test-host:$ktorVersion\")",
+    "",
+  ]
+
+  [[recipes.tests.summary]]
+  title = "Adding tests"
+  items = "src/test/kotlin/.../ApplicationTest.kt\nthe test dependencies in build.gradle.kts"
+
 [recipes.route]
 label       = "Route module"
 description = "A routing file and a service, registered in the router and the Koin graph."

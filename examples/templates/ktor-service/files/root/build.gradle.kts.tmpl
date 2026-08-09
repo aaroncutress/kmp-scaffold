@@ -7,6 +7,11 @@ plugins {
 group = "{{ .Project.Package }}"
 version = "1.0.0"
 
+// Declared once rather than repeated on every line. `kmp-scaffold add tests`
+// adds a Ktor dependency to a project generated without one, and it has no way
+// to resolve a version at that point - so the version has to already be here.
+val ktorVersion = "{{ .Versions.ktor }}"
+
 application {
     mainClass.set("{{ .Project.Package }}.ApplicationKt")
 }
@@ -16,16 +21,16 @@ repositories {
 }
 
 dependencies {
-    implementation("io.ktor:ktor-server-core:{{ .Versions.ktor }}")
-    implementation("io.ktor:ktor-server-netty:{{ .Versions.ktor }}")
-    implementation("io.ktor:ktor-server-config-yaml:{{ .Versions.ktor }}")
-    implementation("io.ktor:ktor-server-content-negotiation:{{ .Versions.ktor }}")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:{{ .Versions.ktor }}")
+    implementation("io.ktor:ktor-server-core:$ktorVersion")
+    implementation("io.ktor:ktor-server-netty:$ktorVersion")
+    implementation("io.ktor:ktor-server-config-yaml:$ktorVersion")
+    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 {{- if has .Vars.extras "logging" }}
-    implementation("io.ktor:ktor-server-call-logging:{{ .Versions.ktor }}")
+    implementation("io.ktor:ktor-server-call-logging:$ktorVersion")
 {{- end }}
 {{- if has .Vars.extras "cors" }}
-    implementation("io.ktor:ktor-server-cors:{{ .Versions.ktor }}")
+    implementation("io.ktor:ktor-server-cors:$ktorVersion")
 {{- end }}
     implementation("io.insert-koin:koin-ktor:{{ .Versions.koin }}")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{{ .Versions.Of "kotlinx-coroutines" }}")
@@ -34,8 +39,10 @@ dependencies {
 {{- if .Tests }}
 
     testImplementation(kotlin("test"))
-    testImplementation("io.ktor:ktor-server-test-host:{{ .Versions.ktor }}")
+    testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
 {{- end }}
+
+    // kmp-scaffold:test-deps
 }
 
 kotlin {

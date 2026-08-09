@@ -159,13 +159,31 @@ template's output has its own problems; ask its author.
 #### `./gradlew allTests` says there is nothing to run
 
 The project was generated with `--no-tests`, so there are no test source sets
-and no test dependencies. Adding a test file back is not enough on its own —
-`commonTest` needs `kotlin-test` and the rest, which are not in
-`libs.versions.toml` either.
+and no test dependencies.
 
-The quickest way back is to generate a throwaway project with tests on and copy
-the `commonTest.dependencies` block, the four Testing entries in the catalog and
-one example test across. Or regenerate into a new directory and diff.
+```bash
+kmp-scaffold add tests
+```
+
+That writes the source sets, the examples, the dependency blocks and the catalog
+entries, and records the answer. It touches nothing you have written.
+
+#### `add tests` says it could not find an anchor
+
+The project was generated before the retrofit anchors existed, or the build
+script has been reorganised since. Everything else was still applied — the
+message lists the file, the anchor and the exact lines, so paste them in and add
+the anchor comment while you are there for next time.
+
+#### A `.new` file appeared next to one of mine
+
+A recipe wanted to write a file you already have and that differs from what it
+would have written, so it left yours alone. Diff the two, take what you want,
+and delete the `.new`. `--force` overwrites outright instead.
+
+A file that is still byte-for-byte what kmp-scaffold wrote is updated in place
+rather than sidecarred — that is how `add tests` gets an untouched CI workflow
+to start running them.
 
 #### `Cannot find type 'X' in scope` in a Swift test
 

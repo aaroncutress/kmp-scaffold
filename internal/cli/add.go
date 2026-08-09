@@ -112,12 +112,21 @@ func findRecipe(dir, what string) (scaffold.Recipe, scaffold.Template, string, *
 }
 
 func recipeList(recipes []scaffold.Recipe) string {
+	// Width from the longest name rather than a fixed one, so a recipe called
+	// something long does not push its own label out of the column.
+	width := 0
+	for _, r := range recipes {
+		width = max(width, len(r.Name))
+	}
+	const prefix = "  kmp-scaffold add "
+	indent := strings.Repeat(" ", len(prefix)+width+1)
+
 	var b strings.Builder
 	b.WriteString(sBold.Render("This project accepts") + "\n")
 	for _, r := range recipes {
-		b.WriteString(fmt.Sprintf("  kmp-scaffold add %-10s %s\n", r.Name, sMuted.Render(r.Label)))
+		b.WriteString(fmt.Sprintf("%s%-*s %s\n", prefix, width, r.Name, sMuted.Render(r.Label)))
 		if r.Description != "" {
-			b.WriteString("  " + strings.Repeat(" ", 27) + sMuted.Render(r.Description) + "\n")
+			b.WriteString(indent + sMuted.Render(r.Description) + "\n")
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -137,7 +146,11 @@ func runRecipe(ctx context.Context, run recipeRun) error {
 
 	fs := flag.NewFlagSet("add "+r.Name, flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: kmp-scaffold add %s [name] [flags]\n\n", r.Name)
+		usage := "Usage: kmp-scaffold add %s [name] [flags]\n\n"
+		if r.Singleton {
+			usage = "Usage: kmp-scaffold add %s [flags]\n\n"
+		}
+		fmt.Fprintf(os.Stderr, usage, r.Name)
 		if r.Description != "" {
 			fmt.Fprintf(os.Stderr, "%s\n\n", r.Description)
 		}
@@ -175,7 +188,18 @@ func runRecipe(ctx context.Context, run recipeRun) error {
 
 	answers := scaffold.NewAnswers()
 	answers.Project = manifest.Project
-	if positional := firstOperand(operands); positional != "" {
+	positional := firstOperand(operands)
+	if r.Singleton {
+		// There is one of it, so there is nothing to call it. Taking a name and
+		// ignoring it would leave the user thinking they had named something.
+		if positional != "" {
+			return fmt.Errorf("`add %s` takes no name - there is only one %s in a project", r.Name, noun)
+		}
+		if r.Applied(manifest) && !*force {
+			return fmt.Errorf("this project already has %s - `--force` re-applies it, "+
+				"overwriting the files it owns", noun)
+		}
+	} else if positional != "" {
 		answers.Set(scaffold.NameAnswer, model.Kebab(positional))
 	}
 
@@ -193,7 +217,11 @@ func runRecipe(ctx context.Context, run recipeRun) error {
 		}
 	}
 
-	if *yes || !interactive() {
+	switch {
+	case r.Singleton && (*yes || !interactive()):
+		// Nothing to validate: a singleton has no name, and whether it has
+		// already been applied was settled above.
+	case *yes || !interactive():
 		name := answers.Str(scaffold.NameAnswer)
 		if name == "" {
 			return fmt.Errorf("give the %s a name, e.g. `kmp-scaffold add %s billing`", noun, r.Name)
@@ -204,7 +232,7 @@ func runRecipe(ctx context.Context, run recipeRun) error {
 		if manifest.FindFeatureOf(r.Name, name) != nil {
 			return fmt.Errorf("this project already has a %s called %q", noun, name)
 		}
-	} else {
+	default:
 		answered, err := tui.RecipeFlow(r, manifest, answers).Run(ctx)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
@@ -216,7 +244,15 @@ func runRecipe(ctx context.Context, run recipeRun) error {
 	}
 
 	name := answers.Str(scaffold.NameAnswer)
+	if r.Singleton {
+		// The manifest keys a recipe's record by name, and a singleton's name is
+		// the recipe itself - so a second `add tests` finds the first one.
+		name = r.Name
+	}
 	writer := render.NewWriter(root, *dryRun, *force)
+	// A recipe writes into a project someone has been working in, so a file it
+	// wants to write and cannot is worth showing rather than only counting.
+	writer.Sidecars = true
 	report, err := r.Apply(ctx, scaffold.RecipeRequest{
 		Recipe:   r.Name,
 		Manifest: manifest,
@@ -242,15 +278,40 @@ func runRecipe(ctx context.Context, run recipeRun) error {
 	printWriteSummary(writer, *verbose)
 	printWireSummary(report.Wire)
 
+	for _, n := range report.Notes {
+		fmt.Println("  " + sMuted.Render("· "+n))
+	}
 	for _, w := range report.Warnings {
 		fmt.Println("  " + sWarn.Render("! "+w))
 	}
 
-	if !*dryRun && run.template.Meta().ID == kmp.ID {
+	// Only when something Gradle reads actually changed. Editor configuration
+	// is written into a Kotlin project too, and telling someone to sync for it
+	// trains them to ignore the line.
+	if !*dryRun && run.template.Meta().ID == kmp.ID && touchedGradle(writer, report) {
 		fmt.Println()
-		fmt.Println(sMuted.Render("Sync Gradle to pick up the new modules."))
+		fmt.Println(sMuted.Render("Sync Gradle to pick up the changes."))
 	}
 	return nil
+}
+
+// touchedGradle reports whether anything Gradle reads was written or edited.
+func touchedGradle(w *render.Writer, report *scaffold.Report) bool {
+	isGradle := func(p string) bool {
+		return strings.HasSuffix(p, ".gradle.kts") || strings.HasSuffix(p, ".versions.toml")
+	}
+	for _, a := range w.Actions() {
+		if a.Status != render.Skipped && a.Status != render.Unchanged && isGradle(a.Path) {
+			return true
+		}
+	}
+	for _, r := range report.Wire {
+		if r.Inserted > 0 && isGradle(r.Path) {
+			return true
+		}
+	}
+	// A catalog edit is not one of the writer's, so the recipe reports it.
+	return len(report.Notes) > 0
 }
 
 // printMigrationNotice explains a manifest that has just been upgraded in
@@ -275,6 +336,29 @@ func printWireSummary(results []wire.Result) {
 	}
 	if touched == 0 && len(results) > 0 {
 		fmt.Println(sMuted.Render("  every wiring point was already in place"))
+	}
+
+	// An anchor that is not there is the ordinary case for a project generated
+	// before it existed, which is exactly the project someone retrofits into.
+	// Saying what to paste and where is the difference between a warning and a
+	// thing the reader can act on.
+	for _, r := range results {
+		if !r.Missing || len(r.Lines) == 0 {
+			continue
+		}
+		fmt.Println()
+		fmt.Printf("%s %s\n", sWarn.Render("!"), sBold.Render(r.Path))
+		fmt.Println(sMuted.Render(fmt.Sprintf(
+			"  no `%s` anchor here, so add this by hand:", r.Anchor)))
+		// The blank lines a block carries are for spacing it from whatever it
+		// was inserted next to, and there is nothing next to it here.
+		lines := r.Lines
+		for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+			lines = lines[:len(lines)-1]
+		}
+		for _, line := range lines {
+			fmt.Println("    " + line)
+		}
 	}
 }
 
@@ -392,7 +476,7 @@ Packs:
 	}
 
 	if !*dryRun {
-		if err := appendToCatalog(root, versionLines, libraryLines); err != nil {
+		if err := kmp.AppendToCatalog(root, versionLines, libraryLines); err != nil {
 			return err
 		}
 		if err := manifest.SetVars(kmp.VarsOf(spec)); err != nil {
@@ -423,35 +507,3 @@ Packs:
 
 // appendToCatalog inserts new entries at the end of the [versions] and
 // [libraries] blocks of libs.versions.toml.
-func appendToCatalog(root string, versionLines, libraryLines []string) error {
-	path := root + "/gradle/libs.versions.toml"
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading the version catalog: %w", err)
-	}
-	content := string(raw)
-
-	insert := func(content, section string, lines []string) string {
-		if len(lines) == 0 {
-			return content
-		}
-		idx := strings.Index(content, "\n["+section+"]\n")
-		if idx < 0 {
-			return content + "\n[" + section + "]\n" + strings.Join(lines, "\n") + "\n"
-		}
-		// Find the start of the next section header after this one.
-		rest := content[idx+len(section)+4:]
-		next := strings.Index(rest, "\n[")
-		insertAt := len(content)
-		if next >= 0 {
-			insertAt = idx + len(section) + 4 + next
-		}
-		block := "\n# Added by kmp-scaffold add library\n" + strings.Join(lines, "\n") + "\n"
-		return content[:insertAt] + block + content[insertAt:]
-	}
-
-	content = insert(content, "libraries", libraryLines)
-	content = insert(content, "versions", versionLines)
-
-	return os.WriteFile(path, []byte(content), 0o644)
-}

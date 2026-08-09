@@ -11,13 +11,20 @@ import kotlin.test.assertEquals
  * Ktor's testApplication runs the whole server in-process, with no port bound -
  * so this exercises real routing and serialisation without being a slow test.
  */
+{{/*
+    This file is rendered from two places: `new`, where the answers are in
+    .Vars, and `add tests`, where .Vars is the recipe's own answers and what
+    the project was generated with is in .ProjectVars. `or` picks whichever
+    is set, so one template serves both.
+*/}}
+{{- $route := index (or .Vars.routes .ProjectVars.routes) 0 }}
 class ApplicationTest {
 
     @Test
-    fun `{{ index .Vars.routes 0 }} responds`() = testApplication {
+    fun `{{ $route }} responds`() = testApplication {
         application { module() }
 
-        val response = client.get("/{{ index .Vars.routes 0 }}")
+        val response = client.get("/{{ $route }}")
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(true, response.bodyAsText().isNotBlank())
     }

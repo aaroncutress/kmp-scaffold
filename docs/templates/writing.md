@@ -310,6 +310,63 @@ name_hint   = "Lowercase kebab-case, e.g. order-history."
 Run it with `kmp-scaffold add route order-history`. `kmp-scaffold add` on its own
 lists what a project accepts.
 
+#### Singleton recipes: turning an option on afterwards
+
+A recipe usually adds a named thing, and you can add as many as you like. Some
+things a project has one of: a test setup, a CI workflow, editor configuration.
+Mark those `singleton`:
+
+```toml
+[recipes.tests]
+label       = "Tests"
+description = "A test source set and the dependencies it needs."
+noun        = "tests"
+singleton   = true
+
+  [[recipes.tests.files]]
+  from = "files/test/ApplicationTest.kt.tmpl"
+  to   = "src/test/kotlin/{{ packagePath .Project.Package }}/ApplicationTest.kt"
+
+  [[recipes.tests.edits]]
+  path   = "build.gradle.kts"
+  anchor = "my-template:test-deps"
+  key    = "ktor-server-test-host"
+  lines  = ["testImplementation(kotlin(\"test\"))"]
+```
+
+`kmp-scaffold add tests` — no name, and refused the second time unless `--force`
+is given.
+
+This is what makes an option offered at generation time available six months
+later. A project generated with `--no-tests` is not one that can never have
+tests; it is one that does not have them yet.
+
+Two things make it work in practice, and both are your responsibility as the
+template author:
+
+**Write the anchor whatever the answer.** If `build.gradle.kts` only carries
+`// my-template:test-deps` when tests were generated, the retrofit has nowhere
+to insert on the only project that needs it. Put the anchor outside the
+condition:
+
+```
+{{- if .Tests }}
+    testImplementation(kotlin("test"))
+{{- end }}
+
+    // my-template:test-deps
+}
+```
+
+**Do not depend on `.Versions` in a recipe.** Nothing is resolved when a recipe
+runs, so `{{ .Versions.ktor }}` renders empty. If a retrofitted
+dependency needs a version, have the generated build file declare it once
+(`val ktorVersion = "..."`) and refer to that.
+
+Note also that a recipe's `.Vars` are the *recipe's* answers, not the project's
+— what the project was generated with is `.ProjectVars`. A file template shared
+between generation and a recipe can read both: `or .Vars.routes .ProjectVars.routes`.
+
 #### Anchors
 
 An edit inserts **above an anchor comment**, matching its indentation. The

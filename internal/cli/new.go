@@ -8,13 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/aaroncutress/kmp-scaffold/internal/catalog"
 	"github.com/aaroncutress/kmp-scaffold/internal/generator"
+	"github.com/aaroncutress/kmp-scaffold/internal/kmp"
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
 	"github.com/aaroncutress/kmp-scaffold/internal/render"
 	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
+	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 	"github.com/aaroncutress/kmp-scaffold/internal/tui"
 )
 
@@ -25,7 +26,7 @@ func runNew(ctx context.Context, args []string) error {
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, `Usage: kmp-scaffold new [directory] [flags]
 
-Creates a Kotlin Multiplatform project. With no flags it runs an interactive
+Creates a project from a template. With no flags it runs an interactive
 wizard; --yes generates straight away using the defaults plus any flags given.
 
 Flags:
@@ -34,13 +35,17 @@ Flags:
 	}
 
 	var (
-		name       = fs.String("name", "", "Project name (rootProject.name)")
+		templateRef = fs.String("template", "",
+			"Template to generate from (default: "+scaffold.DefaultTemplate+")")
+		name       = fs.String("name", "", "Project name")
 		pkg        = fs.String("package", "", "Package name, e.g. com.example.app")
 		appID      = fs.String("application-id", "", "Android applicationId (defaults to --package)")
 		noAndroid  = fs.Bool("no-android", false, "Do not generate an Android app")
 		noIOS      = fs.Bool("no-ios", false, "Do not generate an iOS app")
-		androidLay = fs.String("android-layout", "", "Android layout id (nav3-shell, nav3-single)")
-		iosLay     = fs.String("ios-layout", "", "iOS layout id (swiftui-simple, none)")
+		androidLay = fs.String("android-layout", "",
+			"Android layout id ("+strings.Join(kmp.LayoutIDs(generator.KindAndroid), ", ")+")")
+		iosLay = fs.String("ios-layout", "",
+			"iOS layout id ("+strings.Join(kmp.LayoutIDs(generator.KindIOS), ", ")+")")
 		tabs       = fs.String("tabs", "", "Comma-separated root tabs, e.g. Home,Settings")
 		packs      = fs.String("libraries", "", "Comma-separated library packs (default: the basic set)")
 		utils      = fs.String("utilities", "", "Comma-separated shared utilities (default: all)")
@@ -67,92 +72,130 @@ Flags:
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 
-	spec := model.Defaults()
-	spec.Packs = catalog.BasicPacks()
-	spec.SharedUtils = catalog.DefaultUtilities()
-	spec.AndroidExtras = catalog.DefaultExtras()
+	// The template decides what the remaining questions are, so it has to be
+	// chosen before the wizard can be built.
+	choices := scaffold.Builtins()
+	if *templateRef == "" && !*yes && interactive() && len(choices) > 1 {
+		picked, err := tui.PickTemplate(choices).Run(ctx)
+		if err != nil {
+			if errors.Is(err, tui.ErrCancelled) {
+				return errCancelled
+			}
+			return err
+		}
+		*templateRef = picked.Str(tui.TemplateQuestion)
+	}
 
-	if positional := firstOperand(operands); positional != "" {
-		spec.Dir = positional
-		if *name == "" {
-			spec.Name = model.Pascal(filepath.Base(filepath.Clean(positional)))
+	template, err := scaffold.Load(*templateRef)
+	if err != nil {
+		return err
+	}
+	answers := template.NewAnswers()
+
+	// The structural flags belong to the Kotlin Multiplatform template. Another
+	// template answers its questions through the wizard or its own defaults;
+	// silently ignoring flags it has never heard of would be worse than saying
+	// so, so they are rejected.
+	kmpTemplate, isKMP := template.(kmp.Template)
+	kmpFlags := []string{"no-android", "no-ios", "android-layout", "ios-layout", "tabs",
+		"libraries", "utilities", "android-extras", "min-sdk", "compile-sdk", "gradle", "kotlin", "agp"}
+	if !isKMP {
+		for _, f := range kmpFlags {
+			if given[f] {
+				return fmt.Errorf("--%s only applies to the %s template", f, kmp.ID)
+			}
 		}
 	}
 
-	// Flags override defaults, and are also the seed values the wizard starts from.
+	if positional := firstOperand(operands); positional != "" {
+		answers.Project.Dir = positional
+		if *name == "" {
+			answers.Project.Name = model.Pascal(filepath.Base(filepath.Clean(positional)))
+		}
+	}
 	if *name != "" {
-		spec.Name = *name
+		answers.Project.Name = *name
 	}
 	if *pkg != "" {
-		spec.Package = *pkg
-		spec.ApplicationID = *pkg
+		answers.Project.Package = *pkg
+		answers.Project.ApplicationID = *pkg
 	}
 	if *appID != "" {
-		spec.ApplicationID = *appID
+		answers.Project.ApplicationID = *appID
 	}
-	if *noAndroid {
-		spec.Android = false
+
+	if isKMP {
+		spec := kmp.Spec(answers)
+		if *noAndroid {
+			spec.Android = false
+		}
+		if *noIOS {
+			spec.IOS = false
+		}
+		if *androidLay != "" {
+			spec.AndroidLayout = *androidLay
+		}
+		if *iosLay != "" {
+			spec.IOSLayout = *iosLay
+		}
+		if *tabs != "" {
+			spec.RootTabs = splitList(*tabs)
+		}
+		if given["libraries"] {
+			spec.Packs = splitList(*packs)
+		}
+		if given["utilities"] {
+			spec.SharedUtils = splitList(*utils)
+		}
+		if given["android-extras"] {
+			spec.AndroidExtras = splitList(*extras)
+		}
+		if *channel != "" {
+			spec.Channel = *channel
+		}
+		if *minSDK > 0 {
+			spec.MinSDK = *minSDK
+		}
+		if *compileSDK > 0 {
+			spec.CompileSDK = *compileSDK
+		}
+		spec.GradleVer = *gradleVer
+		spec.KotlinVer = *kotlinVer
+		spec.AGP = *agpVer
+		spec.Offline = *offline
+		kmpTemplate.Bind(answers)
 	}
-	if *noIOS {
-		spec.IOS = false
-	}
-	if *androidLay != "" {
-		spec.AndroidLayout = *androidLay
-	}
-	if *iosLay != "" {
-		spec.IOSLayout = *iosLay
-	}
-	if *tabs != "" {
-		spec.RootTabs = splitList(*tabs)
-	}
-	if given["libraries"] {
-		spec.Packs = splitList(*packs)
-	}
-	if given["utilities"] {
-		spec.SharedUtils = splitList(*utils)
-	}
-	if given["android-extras"] {
-		spec.AndroidExtras = splitList(*extras)
-	}
-	if *channel != "" {
-		spec.Channel = *channel
-	}
-	if *minSDK > 0 {
-		spec.MinSDK = *minSDK
-	}
-	if *compileSDK > 0 {
-		spec.CompileSDK = *compileSDK
-	}
-	spec.GradleVer = *gradleVer
-	spec.KotlinVer = *kotlinVer
-	spec.AGP = *agpVer
-	spec.Offline = *offline
 
 	var result *resolve.Result
 
 	if *yes || !interactive() {
-		if spec.Name == "" {
+		if answers.Project.Name == "" {
 			return fmt.Errorf("--name is required when not running interactively")
 		}
-		if spec.Package == "" {
-			spec.Package = "com.example." + model.LowerAlnum(spec.Name)
-			spec.ApplicationID = spec.Package
-		}
-		if spec.Dir == "" {
-			spec.Dir = model.Kebab(spec.Name)
-		}
-		if err := model.ValidateProjectName(spec.Name); err != nil {
+		if err := model.ValidateProjectName(answers.Project.Name); err != nil {
 			return fmt.Errorf("--name: %w", err)
 		}
-		if err := model.ValidatePackage(spec.Package); err != nil {
-			return fmt.Errorf("--package: %w", err)
+		if template.Meta().AsksPackage {
+			if answers.Project.Package == "" {
+				answers.Project.Package = "com.example." + model.LowerAlnum(answers.Project.Name)
+				answers.Project.ApplicationID = answers.Project.Package
+			}
+			if err := model.ValidatePackage(answers.Project.Package); err != nil {
+				return fmt.Errorf("--package: %w", err)
+			}
 		}
-		catalog.Normalise(&spec)
+		if answers.Project.Dir == "" {
+			answers.Project.Dir = model.Kebab(answers.Project.Name)
+		}
+		template.Normalise(answers)
 
-		fmt.Println(sBold.Render("Resolving versions..."))
-		result = resolve.Run(ctx, spec, resolveOptions(spec, *kotlinVer, *agpVer))
+		if req := template.Versions(answers); len(req.Keys) > 0 {
+			fmt.Println(sBold.Render("Resolving versions..."))
+			result = resolve.Run(ctx, req)
+			template.Check(answers, result)
+		}
 	} else {
-		wizard, holder := tui.NewFlow(ctx, spec)
+		wizard, holder := tui.NewFlow(ctx, template, answers)
 		answered, err := wizard.Run(ctx)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
@@ -160,31 +203,37 @@ Flags:
 			}
 			return err
 		}
-		spec = answered
+		answers = answered
 		result = holder.Result
-		if result == nil {
-			result = resolve.Run(ctx, spec, resolveOptions(spec, *kotlinVer, *agpVer))
-		}
 	}
 
-	notes := catalog.Normalise(&spec)
+	notes := template.Normalise(answers)
 
 	// The wizard resolved against pre-normalisation answers; if normalisation
 	// changed the selection, resolve again so the catalog matches the project.
-	if len(notes) > 0 && !spec.Offline {
-		result = resolve.Run(ctx, spec, resolveOptions(spec, *kotlinVer, *agpVer))
+	// Offline resolution cannot change its mind, so it is only worth repeating
+	// when there was no result at all - which is also the cancelled-early case.
+	req := template.Versions(answers)
+	if len(req.Keys) > 0 && (result == nil || (len(notes) > 0 && !req.Offline)) {
+		result = resolve.Run(ctx, req)
+		template.Check(answers, result)
 	}
 
-	root, err := filepath.Abs(spec.Dir)
+	root, err := filepath.Abs(answers.Project.Dir)
 	if err != nil {
 		return err
 	}
-	if err := ensureUsableDir(root, *force); err != nil {
+	if err := ensureUsableDir(root, template.Meta().Sentinels, *force); err != nil {
 		return err
 	}
 
 	writer := render.NewWriter(root, *dryRun, *force)
-	report, err := generator.NewProject(ctx, spec, result, Version, writer)
+	report, err := template.Generate(ctx, scaffold.GenRequest{
+		Answers: answers,
+		Result:  result,
+		Writer:  writer,
+		Version: Version,
+	})
 	if err != nil {
 		return err
 	}
@@ -193,7 +242,7 @@ Flags:
 	if *dryRun {
 		fmt.Println(sBold.Render("Dry run - nothing was written."))
 	} else {
-		fmt.Println(sOK.Render("✔ ") + sBold.Render(spec.Name) + sMuted.Render(" created in "+root))
+		fmt.Println(sOK.Render("✔ ") + sBold.Render(answers.Project.Name) + sMuted.Render(" created in "+root))
 	}
 	fmt.Println()
 	printWriteSummary(writer, *verbose)
@@ -207,30 +256,15 @@ Flags:
 	printResolveNotes(result)
 
 	if !*dryRun {
-		printNextSteps(spec, root)
+		printNextSteps(template.NextSteps(answers), root)
 	}
 	return nil
 }
 
-func resolveOptions(spec model.Spec, kotlinVer, agpVer string) resolve.Options {
-	overrides := map[string]string{}
-	if kotlinVer != "" {
-		overrides[catalog.KeyKotlin] = kotlinVer
-	}
-	if agpVer != "" {
-		overrides[catalog.KeyAGP] = agpVer
-	}
-	return resolve.Options{
-		Channel:   catalog.ParseChannel(spec.Channel),
-		Offline:   spec.Offline,
-		Timeout:   20 * time.Second,
-		Overrides: overrides,
-	}
-}
-
 // ensureUsableDir refuses to generate into a directory that already looks like
-// a project, unless --force was given.
-func ensureUsableDir(root string, force bool) error {
+// a project, unless --force was given. What "looks like a project" means is the
+// template's call: a Gradle build and a Node one leave different traces.
+func ensureUsableDir(root string, sentinels []string, force bool) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -241,18 +275,20 @@ func ensureUsableDir(root string, force bool) error {
 	if force {
 		return nil
 	}
+	if len(sentinels) == 0 {
+		sentinels = []string{model.ManifestFile}
+	}
 	for _, e := range entries {
-		switch e.Name() {
-		case "settings.gradle.kts", "build.gradle.kts", model.ManifestFile:
+		if model.Has(sentinels, e.Name()) {
 			return fmt.Errorf(
-				"%s already contains a Gradle project (%s) - generate somewhere else, or pass --force",
+				"%s already contains a project (%s) - generate somewhere else, or pass --force",
 				root, e.Name())
 		}
 	}
 	return nil
 }
 
-func printNextSteps(spec model.Spec, root string) {
+func printNextSteps(steps []scaffold.NextStep, root string) {
 	rel, err := filepath.Rel(mustGetwd(), root)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		rel = root
@@ -263,24 +299,37 @@ func printNextSteps(spec model.Spec, root string) {
 	if rel != "." {
 		fmt.Printf("  cd %s\n", rel)
 	}
-	if spec.HasPack("secrets") {
-		fmt.Println("  cp secrets.properties.template secrets.properties   " +
-			sMuted.Render("# then fill it in"))
+
+	width := 0
+	for _, s := range steps {
+		if s.Note != "" && len(s.Command) > width {
+			width = len(s.Command)
+		}
 	}
-	if spec.Android {
-		fmt.Println("  ./gradlew :androidApp:assembleDebug")
+	for _, s := range steps {
+		if s.Note == "" {
+			fmt.Printf("  %s\n", s.Command)
+			continue
+		}
+		fmt.Printf("  %-*s   %s\n", width, s.Command, sMuted.Render("# "+s.Note))
 	}
-	if spec.IOS && spec.IOSLayout == generator.IOSFeaturesLayout {
-		fmt.Println("  ./iosApp/build-framework.sh                         " +
-			sMuted.Render("# on a Mac, before opening Xcode"))
-		fmt.Println("  open iosApp/iosApp.xcodeproj")
-	} else if spec.IOS && spec.IOSLayout != "none" {
-		fmt.Println("  open iosApp/iosApp.xcodeproj                        " +
-			sMuted.Render("# on a Mac"))
-	}
+
 	fmt.Println()
 	fmt.Println(sMuted.Render("  kmp-scaffold add feature <name>   to add a feature module"))
 	fmt.Println(sMuted.Render("  kmp-scaffold versions            to check for newer releases"))
+}
+
+// defaultSpec is the answer set `versions` uses outside a project: what a fresh
+// project would be generated with today.
+func defaultSpec(channel string) model.Spec {
+	spec := model.Defaults()
+	spec.Packs = catalog.BasicPacks()
+	spec.SharedUtils = catalog.DefaultUtilities()
+	spec.AndroidExtras = catalog.DefaultExtras()
+	if channel != "" {
+		spec.Channel = channel
+	}
+	return spec
 }
 
 func mustGetwd() string {

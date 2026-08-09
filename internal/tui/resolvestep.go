@@ -9,9 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/aaroncutress/kmp-scaffold/internal/catalog"
-	"github.com/aaroncutress/kmp-scaffold/internal/model"
 	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
+	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 )
 
 type resolveProgressMsg struct {
@@ -28,8 +27,9 @@ type Holder struct{ Result *resolve.Result }
 // then shows what it found, so nothing is generated against versions the user
 // has not seen.
 type ResolveStep struct {
-	Ctx    context.Context
-	Holder *Holder
+	Ctx      context.Context
+	Template scaffold.Template
+	Holder   *Holder
 
 	spinner   spinner.Model
 	events    chan tea.Msg
@@ -40,11 +40,11 @@ type ResolveStep struct {
 }
 
 // NewResolveStep builds the resolution step.
-func NewResolveStep(ctx context.Context, holder *Holder) *ResolveStep {
+func NewResolveStep(ctx context.Context, t scaffold.Template, holder *Holder) *ResolveStep {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = styleFocus
-	return &ResolveStep{Ctx: ctx, Holder: holder, spinner: sp}
+	return &ResolveStep{Ctx: ctx, Template: t, Holder: holder, spinner: sp}
 }
 
 func (s *ResolveStep) Title() string {
@@ -61,18 +61,17 @@ func (s *ResolveStep) Help() string {
 	return "ctrl+c quit"
 }
 
-func (s *ResolveStep) Skip(model.Spec) bool { return false }
-
-// specSignature captures the answers that change the resolution result, so
-// going back and editing them re-runs it while going back and forth does not.
-func specSignature(spec model.Spec) string {
-	return fmt.Sprintf("%v|%v|%v|%v|%d|%d|%s|%s",
-		spec.Packs, spec.SharedUtils, spec.Android, spec.IOS,
-		spec.MinSDK, spec.CompileSDK, spec.Channel, spec.GradleVer)
+// Skip drops the step entirely for a template that resolves nothing.
+func (s *ResolveStep) Skip(a *scaffold.Answers) bool {
+	return len(s.Template.Versions(a).Keys) == 0
 }
 
-func (s *ResolveStep) Enter(spec *model.Spec) tea.Cmd {
-	sig := specSignature(*spec)
+func (s *ResolveStep) Enter(a *scaffold.Answers) tea.Cmd {
+	req := s.Template.Versions(a)
+
+	// The request itself is the signature, so editing an answer that changes
+	// the outcome re-runs resolution while going back and forth does not.
+	sig := req.Signature()
 	if s.done && sig == s.signature {
 		return nil
 	}
@@ -82,21 +81,17 @@ func (s *ResolveStep) Enter(spec *model.Spec) tea.Cmd {
 	s.progress = resolveProgressMsg{}
 	s.events = make(chan tea.Msg, 512)
 
-	snapshot := *spec
 	events := s.events
-	go func() {
-		opts := resolve.Options{
-			Channel: catalog.ParseChannel(snapshot.Channel),
-			Offline: snapshot.Offline,
-			Timeout: 20 * time.Second,
-			Progress: func(done, total int, label string) {
-				select {
-				case events <- resolveProgressMsg{done, total, label}:
-				default: // never block resolution on a slow renderer
-				}
-			},
+	req.Progress = func(done, total int, label string) {
+		select {
+		case events <- resolveProgressMsg{done, total, label}:
+		default: // never block resolution on a slow renderer
 		}
-		result := resolve.Run(s.Ctx, snapshot, opts)
+	}
+	template := s.Template
+	go func() {
+		result := resolve.Run(s.Ctx, req)
+		template.Check(a, result)
 		events <- resolveDoneMsg{result}
 	}()
 
@@ -113,7 +108,7 @@ func waitForEvent(ch chan tea.Msg) tea.Cmd {
 	}
 }
 
-func (s *ResolveStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
+func (s *ResolveStep) Update(msg tea.Msg, a *scaffold.Answers) (tea.Cmd, Outcome) {
 	switch m := msg.(type) {
 	case resolveProgressMsg:
 		s.progress = m
@@ -151,7 +146,7 @@ func (s *ResolveStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
 	return nil, StayHere
 }
 
-func (s *ResolveStep) View(spec model.Spec, width int) string {
+func (s *ResolveStep) View(a *scaffold.Answers, width int) string {
 	var b strings.Builder
 
 	if s.running {
@@ -172,23 +167,23 @@ func (s *ResolveStep) View(spec model.Spec, width int) string {
 		return styleMuted.Render("nothing resolved")
 	}
 
-	rows := headlineVersions(spec, res)
+	rows := s.Template.Headlines(a, res)
 	// The value is padded before styling: lipgloss does not pad for us, and
 	// styled text cannot be padded by fmt's width verb.
 	valueWidth := 0
 	for _, r := range rows {
-		if n := len(r.value); n > valueWidth {
+		if n := len(r.Value); n > valueWidth {
 			valueWidth = n
 		}
 	}
 	for _, r := range rows {
-		padding := strings.Repeat(" ", valueWidth-len(r.value)+2)
+		padding := strings.Repeat(" ", valueWidth-len(r.Value)+2)
 		b.WriteString(fmt.Sprintf("  %s %-22s %s%s%s\n",
 			styleOK.Render(glyphDone),
-			r.label,
-			styleFocus.Render(r.value),
+			r.Label,
+			styleFocus.Render(r.Value),
 			padding,
-			styleMuted.Render(r.note)))
+			styleMuted.Render(r.Note)))
 	}
 
 	if len(res.Notes) > 0 {
@@ -208,41 +203,6 @@ func (s *ResolveStep) View(spec model.Spec, width int) string {
 	b.WriteString("\n" + styleMuted.Render(fmt.Sprintf(
 		"%d artifacts checked in %s", res.Probed, res.Elapsed.Round(time.Millisecond))))
 	return b.String()
-}
-
-type versionRow struct{ label, value, note string }
-
-// headlineVersions is the short list worth showing on screen; the full set goes
-// into the generated version catalog.
-func headlineVersions(spec model.Spec, res *resolve.Result) []versionRow {
-	add := func(rows []versionRow, label, key string) []versionRow {
-		if v := res.V(key); v != "" {
-			return append(rows, versionRow{label, v, res.Sources[key]})
-		}
-		return rows
-	}
-
-	var rows []versionRow
-	rows = append(rows, versionRow{"Gradle", res.Gradle.Version, "current release"})
-	rows = add(rows, "Android Gradle Plugin", catalog.KeyAGP)
-	rows = add(rows, "Kotlin", catalog.KeyKotlin)
-	rows = add(rows, "KSP", catalog.KeyKSP)
-	if spec.Android {
-		rows = add(rows, "compileSdk / targetSdk", catalog.KeyCompileSDK)
-		rows = add(rows, "minSdk", catalog.KeyMinSDK)
-		rows = add(rows, "Compose UI", catalog.KeyComposeCore)
-		rows = add(rows, "Material 3", catalog.KeyComposeM3)
-		rows = add(rows, "Navigation 3", catalog.KeyNavigation3)
-	}
-	rows = add(rows, "Koin", catalog.KeyKoin)
-	rows = add(rows, "Ktor", catalog.KeyKtor)
-	if spec.HasPack("database") {
-		rows = add(rows, "Room", catalog.KeyRoom)
-	}
-	if spec.IOS && spec.HasPack("skie") {
-		rows = add(rows, "SKIE", catalog.KeySkie)
-	}
-	return rows
 }
 
 func progressBar(done, total, width int) string {

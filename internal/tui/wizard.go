@@ -8,18 +8,18 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/aaroncutress/kmp-scaffold/internal/model"
+	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 )
 
 // ErrCancelled is returned when the user aborts the wizard.
 var ErrCancelled = errors.New("cancelled")
 
-// Wizard drives a list of steps over a shared spec.
+// Wizard drives a list of steps over a shared answer bag.
 type Wizard struct {
-	title string
-	steps []Step
-	idx   int
-	spec  model.Spec
+	title   string
+	steps   []Step
+	idx     int
+	answers *scaffold.Answers
 
 	width  int
 	height int
@@ -30,12 +30,15 @@ type Wizard struct {
 }
 
 // NewWizard builds a wizard over the given steps.
-func NewWizard(title string, spec model.Spec, steps []Step) *Wizard {
-	return &Wizard{title: title, spec: spec, steps: steps, width: 80}
+func NewWizard(title string, answers *scaffold.Answers, steps []Step) *Wizard {
+	if answers == nil {
+		answers = scaffold.NewAnswers()
+	}
+	return &Wizard{title: title, answers: answers, steps: steps, width: 80}
 }
 
-// Spec returns the answers collected so far.
-func (w *Wizard) Spec() model.Spec { return w.spec }
+// Answers returns the bag being filled in.
+func (w *Wizard) Answers() *scaffold.Answers { return w.answers }
 
 // Init implements tea.Model.
 func (w *Wizard) Init() tea.Cmd {
@@ -44,7 +47,7 @@ func (w *Wizard) Init() tea.Cmd {
 		w.finished = true
 		return tea.Quit
 	}
-	return w.steps[w.idx].Enter(&w.spec)
+	return w.steps[w.idx].Enter(w.answers)
 }
 
 // Update implements tea.Model.
@@ -63,7 +66,7 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return w, tea.Quit
 	}
 
-	cmd, outcome := w.steps[w.idx].Update(msg, &w.spec)
+	cmd, outcome := w.steps[w.idx].Update(msg, w.answers)
 
 	switch outcome {
 	case Cancel:
@@ -79,7 +82,7 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return w, tea.Quit
 		}
 		w.idx = next
-		return w, tea.Batch(cmd, w.steps[w.idx].Enter(&w.spec))
+		return w, tea.Batch(cmd, w.steps[w.idx].Enter(w.answers))
 	case GoBack:
 		prev := w.firstEnabled(w.idx-1, -1)
 		if prev < 0 {
@@ -88,7 +91,7 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return w, tea.Quit
 		}
 		w.idx = prev
-		return w, tea.Batch(cmd, w.steps[w.idx].Enter(&w.spec))
+		return w, tea.Batch(cmd, w.steps[w.idx].Enter(w.answers))
 	}
 	return w, cmd
 }
@@ -97,7 +100,7 @@ func (w *Wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // not skipped, or -1 when there is none.
 func (w *Wizard) firstEnabled(idx, dir int) int {
 	for idx >= 0 && idx < len(w.steps) {
-		if !w.steps[idx].Skip(w.spec) {
+		if !w.steps[idx].Skip(w.answers) {
 			return idx
 		}
 		idx += dir
@@ -123,7 +126,7 @@ func (w *Wizard) View() string {
 	b.WriteString(Banner(w.title) + "\n")
 	b.WriteString(styleStep.Render(fmt.Sprintf("Step %d of %d", w.visibleIndex()+1, w.visibleTotal())) + "\n\n")
 	b.WriteString(styleText.Bold(true).Render(step.Title()) + "\n\n")
-	b.WriteString(step.View(w.spec, w.width))
+	b.WriteString(step.View(w.answers, w.width))
 	b.WriteString("\n\n" + styleHelp.Render(step.Help()) + "\n")
 	return b.String()
 }
@@ -131,7 +134,7 @@ func (w *Wizard) View() string {
 func (w *Wizard) visibleTotal() int {
 	n := 0
 	for _, s := range w.steps {
-		if !s.Skip(w.spec) {
+		if !s.Skip(w.answers) {
 			n++
 		}
 	}
@@ -144,29 +147,29 @@ func (w *Wizard) visibleIndex() int {
 		if i == w.idx {
 			return n
 		}
-		if !s.Skip(w.spec) {
+		if !s.Skip(w.answers) {
 			n++
 		}
 	}
 	return n
 }
 
-// Run executes the wizard and returns the completed spec.
-func (w *Wizard) Run(ctx context.Context) (model.Spec, error) {
+// Run executes the wizard and returns the completed answers.
+func (w *Wizard) Run(ctx context.Context) (*scaffold.Answers, error) {
 	prog := tea.NewProgram(w, tea.WithContext(ctx))
 	final, err := prog.Run()
 	if err != nil {
-		return w.spec, err
+		return w.answers, err
 	}
 	done, ok := final.(*Wizard)
 	if !ok {
-		return w.spec, fmt.Errorf("unexpected wizard state")
+		return w.answers, fmt.Errorf("unexpected wizard state")
 	}
 	if done.fatal != nil {
-		return done.spec, done.fatal
+		return done.answers, done.fatal
 	}
 	if done.cancelled {
-		return done.spec, ErrCancelled
+		return done.answers, ErrCancelled
 	}
-	return done.spec, nil
+	return done.answers, nil
 }

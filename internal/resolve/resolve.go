@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/aaroncutress/kmp-scaffold/internal/catalog"
-	"github.com/aaroncutress/kmp-scaffold/internal/model"
 )
 
 // Level classifies a resolution note.
@@ -68,9 +67,13 @@ func (r *Result) Int(key string) int {
 // Has reports whether a version key was resolved.
 func (r *Result) Has(key string) bool { _, ok := r.Versions[key]; return ok }
 
-func (r *Result) note(level Level, format string, args ...any) {
+// Note appends a line to the compatibility report. Templates use this to add
+// findings of their own once the resolver has answered.
+func (r *Result) Note(level Level, format string, args ...any) {
 	r.Notes = append(r.Notes, Note{Level: level, Text: fmt.Sprintf(format, args...)})
 }
+
+func (r *Result) note(level Level, format string, args ...any) { r.Note(level, format, args...) }
 
 // HasErrors reports whether any note is an error.
 func (r *Result) HasErrors() bool {
@@ -85,68 +88,103 @@ func (r *Result) HasErrors() bool {
 // Progress is called as metadata lookups complete.
 type Progress func(done, total int, label string)
 
-// Options controls a resolution run.
-type Options struct {
+// Request describes a resolution run.
+//
+// It is deliberately not a project spec: a template says which version keys it
+// wants and how current they should be, and the resolver answers. That keeps
+// the resolver usable by any template rather than only the Kotlin Multiplatform
+// one, whose compatibility rules live alongside it instead of inside it.
+type Request struct {
+	// Keys are catalog version keys to resolve.
+	Keys []string
+	// Extra are coordinates a template declares itself, for anything the
+	// catalog does not already know about.
+	Extra []catalog.VersionKey
+
 	Channel  catalog.Channel
 	Offline  bool
 	Timeout  time.Duration
 	Progress Progress
 	// Overrides pin specific version keys, bypassing resolution.
 	Overrides map[string]string
+
+	// Android turns on the Android SDK passes: compileSdk, targetSdk and
+	// build-tools are resolved from Google's SDK index, and minSdk is written
+	// from the project setting below.
+	Android    bool
+	MinSDK     int
+	CompileSDK int
+	// GradleVer pins the Gradle distribution; empty resolves the current one.
+	GradleVer string
 }
 
-// RequiredKeys returns the version keys a project actually needs, so that the
-// generated catalog has no unused entries and no unnecessary lookups are made.
-func RequiredKeys(spec model.Spec) []string {
-	need := map[string]bool{}
-	for _, lib := range catalog.Libraries() {
-		if lib.Version != "" && lib.When(spec) {
-			need[lib.Version] = true
-		}
-	}
-	for _, p := range catalog.Plugins() {
-		if p.Version != "" && p.When(spec) {
-			need[p.Version] = true
-		}
-	}
-	// Always-present managed keys.
-	need[catalog.KeyAGP] = true
-	need[catalog.KeyKotlin] = true
-	need[catalog.KeyVersionCode] = true
-	need[catalog.KeyVersionName] = true
-	if spec.Android {
-		need[catalog.KeyCompileSDK] = true
-		need[catalog.KeyMinSDK] = true
-		need[catalog.KeyTargetSDK] = true
-		need[catalog.KeyBuildTools] = true
-	}
-	if spec.IOS && spec.HasPack("skie") {
-		need[catalog.KeySkie] = true
-	}
+// Signature is a stable fingerprint of everything that affects the outcome. The
+// wizard uses it to decide whether an answer the user changed means the
+// versions have to be resolved again.
+func (r Request) Signature() string {
+	keys := append([]string(nil), r.Keys...)
+	sort.Strings(keys)
 
-	var out []string
+	overrides := make([]string, 0, len(r.Overrides))
+	for k, v := range r.Overrides {
+		overrides = append(overrides, k+"="+v)
+	}
+	sort.Strings(overrides)
+
+	extra := make([]string, 0, len(r.Extra))
+	for _, e := range r.Extra {
+		extra = append(extra, e.Key+"@"+e.Probe.String())
+	}
+	sort.Strings(extra)
+
+	return fmt.Sprintf("%s|%v|%d|%d|%s|%s|%s|%s",
+		r.Channel, r.Offline, r.MinSDK, r.CompileSDK, r.GradleVer,
+		strings.Join(keys, ","), strings.Join(overrides, ","), strings.Join(extra, ","))
+}
+
+// definitions indexes every version key this request can resolve: the catalog's
+// plus whatever the template declared.
+func (r Request) definitions() map[string]catalog.VersionKey {
+	defs := map[string]catalog.VersionKey{}
 	for _, k := range catalog.VersionKeys() {
-		if need[k.Key] {
+		defs[k.Key] = k
+	}
+	for _, k := range r.Extra {
+		defs[k.Key] = k
+	}
+	return defs
+}
+
+// keys is every key to resolve: those asked for, plus the template's own.
+func (r Request) keys() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range r.Keys {
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	for _, k := range r.Extra {
+		if !seen[k.Key] {
+			seen[k.Key] = true
 			out = append(out, k.Key)
 		}
 	}
 	return out
 }
 
-// Run resolves every version key the spec needs.
-func Run(ctx context.Context, spec model.Spec, opts Options) *Result {
+// Run resolves every version key a request asks for.
+func Run(ctx context.Context, req Request) *Result {
 	start := time.Now()
 	res := &Result{
 		Versions: map[string]string{},
 		Sources:  map[string]string{},
-		Offline:  opts.Offline,
+		Offline:  req.Offline,
 	}
 
-	keys := RequiredKeys(spec)
-	defs := map[string]catalog.VersionKey{}
-	for _, k := range catalog.VersionKeys() {
-		defs[k.Key] = k
-	}
+	keys := req.keys()
+	defs := req.definitions()
 
 	// Seed everything from baselines so a failed probe always leaves a usable
 	// value behind.
@@ -156,21 +194,21 @@ func Run(ctx context.Context, spec model.Spec, opts Options) *Result {
 		res.Sources[key] = "baseline"
 	}
 
-	if opts.Offline {
+	if req.Offline {
 		res.Gradle = GradleRelease{Version: baselineGradle}
 		res.note(Warn, "Offline mode: using the baseline version set from %s, not the latest releases.", baselineDate)
-		applyFixed(res, spec, opts)
-		applyAndroidBaseline(res, spec)
+		applyFixed(res, req)
+		applyAndroidBaseline(res, req)
 		res.Elapsed = time.Since(start)
 		return res
 	}
 
-	client := NewClient(opts.Timeout)
+	client := NewClient(req.Timeout)
 	candidates := map[string][]string{}
 
 	// Count the extra non-Maven lookups so progress is honest.
 	extra := 1 // Gradle
-	if spec.Android {
+	if req.Android {
 		extra++ // Android SDK index
 	}
 	total := len(keys) + extra
@@ -181,8 +219,8 @@ func Run(ctx context.Context, spec model.Spec, opts Options) *Result {
 		done++
 		d := done
 		progMu.Unlock()
-		if opts.Progress != nil {
-			opts.Progress(d, total, label)
+		if req.Progress != nil {
+			req.Progress(d, total, label)
 		}
 	}
 
@@ -196,7 +234,7 @@ func Run(ctx context.Context, spec model.Spec, opts Options) *Result {
 			tick(key)
 			continue
 		}
-		if _, pinned := opts.Overrides[key]; pinned {
+		if _, pinned := req.Overrides[key]; pinned {
 			tick(key)
 			continue
 		}
@@ -227,7 +265,7 @@ func Run(ctx context.Context, spec model.Spec, opts Options) *Result {
 		if !ok {
 			continue
 		}
-		want := EffectiveChannel(opts.Channel, def.MinChannel)
+		want := EffectiveChannel(req.Channel, def.MinChannel)
 		picked, relaxed := Pick(list, want)
 		if picked == "" {
 			continue
@@ -240,8 +278,8 @@ func Run(ctx context.Context, spec model.Spec, opts Options) *Result {
 	}
 
 	// Gradle distribution.
-	if spec.GradleVer != "" {
-		res.Gradle = client.GradleForVersion(ctx, spec.GradleVer)
+	if req.GradleVer != "" {
+		res.Gradle = client.GradleForVersion(ctx, req.GradleVer)
 		res.Sources["gradle"] = "pinned"
 	} else if rel, err := client.CurrentGradle(ctx); err == nil {
 		res.Gradle = rel
@@ -252,15 +290,16 @@ func Run(ctx context.Context, spec model.Spec, opts Options) *Result {
 	}
 	tick("gradle")
 
-	// Compatibility passes.
-	applyKotlinKSP(res, candidates, opts)
-	applyAGPGradle(res, candidates, client, ctx, opts)
-	if spec.Android {
-		applyAndroidSDK(res, spec, client, ctx)
+	// Compatibility passes. Their order matters: the Android SDK pass can be
+	// capped by the AGP version chosen above it, and applyFixed writes the
+	// user's overrides last so they always win.
+	applyKotlinKSP(res, candidates, req)
+	applyAGPGradle(res, candidates, client, ctx, req)
+	if req.Android {
+		applyAndroidSDK(res, req, client, ctx)
 		tick("android sdk")
 	}
-	applyFixed(res, spec, opts)
-	applySanityChecks(res, spec)
+	applyFixed(res, req)
 
 	if len(res.Failed) > 0 {
 		sort.Strings(res.Failed)
@@ -278,7 +317,7 @@ func Run(ctx context.Context, spec model.Spec, opts Options) *Result {
 // ("2.2.20-2.0.4"), so a Kotlin release without a matching KSP build cannot be
 // used. KSP2 versions its plugin independently ("2.3.10"). Both are handled:
 // under the classic scheme Kotlin is stepped back until a matching KSP exists.
-func applyKotlinKSP(res *Result, candidates map[string][]string, opts Options) {
+func applyKotlinKSP(res *Result, candidates map[string][]string, req Request) {
 	kotlinList := candidates[catalog.KeyKotlin]
 	kspList := candidates[catalog.KeyKSP]
 	if len(kotlinList) == 0 {
@@ -286,15 +325,15 @@ func applyKotlinKSP(res *Result, candidates map[string][]string, opts Options) {
 	}
 
 	kotlinDef, _ := catalog.VersionKeyByName(catalog.KeyKotlin)
-	want := EffectiveChannel(opts.Channel, kotlinDef.MinChannel)
+	want := EffectiveChannel(req.Channel, kotlinDef.MinChannel)
 
-	if _, pinned := opts.Overrides[catalog.KeyKotlin]; pinned {
+	if _, pinned := req.Overrides[catalog.KeyKotlin]; pinned {
 		return
 	}
 	if len(kspList) == 0 {
 		return
 	}
-	if _, pinned := opts.Overrides[catalog.KeyKSP]; pinned {
+	if _, pinned := req.Overrides[catalog.KeyKSP]; pinned {
 		return
 	}
 
@@ -363,7 +402,7 @@ var agpMaxCompileSDK = map[int]int{
 	9: 37,
 }
 
-func applyAGPGradle(res *Result, candidates map[string][]string, client *Client, ctx context.Context, opts Options) {
+func applyAGPGradle(res *Result, candidates map[string][]string, client *Client, ctx context.Context, req Request) {
 	agp := ParseVersion(res.V(catalog.KeyAGP))
 	if agp.Raw == "" {
 		return
@@ -381,7 +420,7 @@ func applyAGPGradle(res *Result, candidates map[string][]string, client *Client,
 		agp.Raw, minGradle, res.Gradle.Version)
 }
 
-func applyAndroidSDK(res *Result, spec model.Spec, client *Client, ctx context.Context) {
+func applyAndroidSDK(res *Result, req Request, client *Client, ctx context.Context) {
 	agp := ParseVersion(res.V(catalog.KeyAGP))
 	cap, capped := agpMaxCompileSDK[agp.Major()]
 
@@ -415,11 +454,11 @@ func applyAndroidSDK(res *Result, spec model.Spec, client *Client, ctx context.C
 			compile, agp.Raw, cap, cap)
 		compile = cap
 	}
-	if spec.CompileSDK > 0 {
-		if spec.CompileSDK != compile {
-			res.note(Info, "compileSdk pinned to %d by request (resolver suggested %d).", spec.CompileSDK, compile)
+	if req.CompileSDK > 0 {
+		if req.CompileSDK != compile {
+			res.note(Info, "compileSdk pinned to %d by request (resolver suggested %d).", req.CompileSDK, compile)
 		}
-		compile = spec.CompileSDK
+		compile = req.CompileSDK
 		res.Sources[catalog.KeyCompileSDK] = "pinned"
 	}
 	if compile <= 0 {
@@ -444,11 +483,11 @@ func applyAndroidSDK(res *Result, spec model.Spec, client *Client, ctx context.C
 	res.Sources[catalog.KeyBuildTools] = res.Sources[catalog.KeyCompileSDK]
 }
 
-func applyAndroidBaseline(res *Result, spec model.Spec) {
-	if !spec.Android {
+func applyAndroidBaseline(res *Result, req Request) {
+	if !req.Android {
 		return
 	}
-	compile := spec.CompileSDK
+	compile := req.CompileSDK
 	if compile <= 0 {
 		compile, _ = strconv.Atoi(baselineCompileSDK)
 	}
@@ -459,9 +498,11 @@ func applyAndroidBaseline(res *Result, spec model.Spec) {
 
 // applyFixed writes the values that never come from a repository, and applies
 // explicit user overrides last so they always win.
-func applyFixed(res *Result, spec model.Spec, opts Options) {
-	if spec.Android {
-		minSDK := spec.MinSDK
+func applyFixed(res *Result, req Request) {
+	defs := req.definitions()
+
+	if req.Android {
+		minSDK := req.MinSDK
 		if minSDK <= 0 {
 			minSDK = 26
 		}
@@ -473,46 +514,16 @@ func applyFixed(res *Result, spec model.Spec, opts Options) {
 	res.Sources[catalog.KeyVersionCode] = "project setting"
 	res.Sources[catalog.KeyVersionName] = "project setting"
 
-	for key, value := range opts.Overrides {
+	for key, value := range req.Overrides {
 		if value == "" {
 			continue
 		}
-		if _, known := catalog.VersionKeyByName(key); !known {
+		if _, known := defs[key]; !known {
 			res.note(Warn, "Ignoring override for unknown version key %q.", key)
 			continue
 		}
 		res.Versions[key] = value
 		res.Sources[key] = "pinned"
-	}
-}
-
-// applySanityChecks adds notes for combinations worth flagging to the user.
-func applySanityChecks(res *Result, spec model.Spec) {
-	kotlin := ParseVersion(res.V(catalog.KeyKotlin))
-
-	if spec.IOS && spec.HasPack("skie") && res.Has(catalog.KeySkie) {
-		res.note(Info,
-			"SKIE %s is pinned against Kotlin %s. SKIE usually trails new Kotlin releases by a few days - "+
-				"if the iOS framework fails to link, drop Kotlin one patch or remove the SKIE plugin.",
-			res.V(catalog.KeySkie), kotlin.Raw)
-	}
-	if kotlin.Channel() != catalog.Stable {
-		res.note(Warn, "Kotlin %s is a pre-release. Third-party compiler plugins may not support it yet.", kotlin.Raw)
-	}
-	if spec.Android {
-		compose := ParseVersion(res.V(catalog.KeyComposeM3))
-		if compose.Channel() == catalog.Bleeding {
-			res.note(Info,
-				"Material 3 %s is an alpha. The generated navigation shell uses expressive APIs that only exist on that track.",
-				compose.Raw)
-		}
-		nav3 := ParseVersion(res.V(catalog.KeyNavigation3))
-		if nav3.Raw != "" && nav3.Channel() != catalog.Stable {
-			res.note(Info, "Navigation 3 %s is pre-release - its API still moves between builds.", nav3.Raw)
-		}
-		if spec.MinSDK > 0 && spec.MinSDK < 24 {
-			res.note(Warn, "minSdk %d is below 24; several AndroidX libraries in this catalog require 24+.", spec.MinSDK)
-		}
 	}
 }
 

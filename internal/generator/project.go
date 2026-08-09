@@ -6,24 +6,28 @@ import (
 	"path"
 	"time"
 
+	"github.com/aaroncutress/kmp-scaffold/internal/assets"
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
 	"github.com/aaroncutress/kmp-scaffold/internal/render"
 	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
-	"github.com/aaroncutress/kmp-scaffold/internal/templates"
 	"github.com/aaroncutress/kmp-scaffold/internal/wire"
 )
 
 // Engine builds the shared template engine.
 func Engine() (*render.Engine, error) {
-	return render.NewEngine(templates.FS())
+	return render.NewEngine(assets.FS())
 }
 
 // Report summarises what a generation run did.
+//
+// Features are the modules this run created. They are returned rather than
+// recorded, because what a project remembers about itself is the template's
+// business, not the generators'.
 type Report struct {
 	Writer   *render.Writer
 	Wire     []wire.Result
 	Warnings []string
-	Manifest model.Manifest
+	Features []FeatureRequest
 }
 
 // NewProject generates a whole project.
@@ -81,9 +85,8 @@ func NewProject(ctx context.Context, spec model.Spec, res *resolve.Result, versi
 	}
 
 	// Record the root tabs as features, so `add feature` sees a complete picture.
-	var features []model.Feature
 	for _, tab := range env.Ctx.Tabs {
-		features = append(features, model.Feature{
+		report.Features = append(report.Features, FeatureRequest{
 			Name:         tab.Name,
 			Android:      spec.Android,
 			Shared:       false,
@@ -91,14 +94,6 @@ func NewProject(ctx context.Context, spec model.Spec, res *resolve.Result, versi
 			Presentation: "shell",
 			RootTab:      spec.AndroidLayout == "nav3-shell",
 		})
-	}
-	manifest := spec.ToManifest(version, features)
-	report.Manifest = manifest
-
-	if !w.DryRun {
-		if err := manifest.Save(w.Root); err != nil {
-			return nil, fmt.Errorf("writing the project manifest: %w", err)
-		}
 	}
 
 	return report, nil
@@ -126,27 +121,13 @@ type FeatureRequest struct {
 }
 
 // AddFeature generates a feature module in an existing project and wires it in.
-func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, version string, w *render.Writer, dryRun bool) (*Report, error) {
+//
+// The spec is reconstructed from the project manifest by the template, so the
+// new module matches how the project was originally generated.
+func AddFeature(spec model.Spec, root string, req FeatureRequest, version string, w *render.Writer, dryRun bool) (*Report, error) {
 	engine, err := Engine()
 	if err != nil {
 		return nil, err
-	}
-
-	// Reconstruct enough of a Spec for the templates from the manifest, so the
-	// feature matches how the project was originally generated.
-	spec := model.Spec{
-		Name:          manifest.Name,
-		Package:       manifest.Package,
-		ApplicationID: manifest.ApplicationID,
-		Android:       manifest.Android,
-		IOS:           manifest.IOS,
-		AndroidLayout: manifest.AndroidLayout,
-		IOSLayout:     manifest.IOSLayout,
-		SharedUtils:   manifest.SharedUtils,
-		AndroidExtras: manifest.AndroidExtras,
-		Packs:         manifest.Packs,
-		RootTabs:      manifest.RootTabs,
-		JVMTarget:     "11",
 	}
 
 	feature := &FeatureCtx{
@@ -167,7 +148,7 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 		Spec:    spec,
 		Res:     &resolve.Result{Versions: map[string]string{}},
 		Cat:     CatalogView{},
-		Tabs:    BuildTabs(manifest.RootTabs),
+		Tabs:    BuildTabs(spec.RootTabs),
 		Feature: feature,
 		Gen:     version,
 	}
@@ -175,17 +156,17 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 	report := &Report{Writer: w}
 
 	if req.Android {
-		if manifest.AndroidLayout == "" || manifest.AndroidLayout == "none" {
+		if spec.AndroidLayout == "" || spec.AndroidLayout == "none" {
 			return nil, fmt.Errorf("this project has no Android app, so an Android feature cannot be added")
 		}
-		g, err := Get(KindAndroid, manifest.AndroidLayout)
+		g, err := Get(KindAndroid, spec.AndroidLayout)
 		if err != nil {
 			return nil, err
 		}
 		fg, ok := g.(FeatureGenerator)
 		if !ok {
 			return nil, fmt.Errorf(
-				"the %q Android layout does not support adding feature modules", manifest.AndroidLayout)
+				"the %q Android layout does not support adding feature modules", spec.AndroidLayout)
 		}
 		if err := fg.GenerateFeature(env); err != nil {
 			return nil, err
@@ -199,10 +180,10 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 	}
 
 	if req.IOS {
-		if manifest.IOSLayout == "" || manifest.IOSLayout == "none" {
+		if spec.IOSLayout == "" || spec.IOSLayout == "none" {
 			return nil, fmt.Errorf("this project has no iOS app, so an iOS feature target cannot be added")
 		}
-		g, err := Get(KindIOS, manifest.IOSLayout)
+		g, err := Get(KindIOS, spec.IOSLayout)
 		if err != nil {
 			return nil, err
 		}
@@ -210,7 +191,7 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 		if !ok {
 			return nil, fmt.Errorf(
 				"the %q iOS layout does not support adding feature targets - it has a single entry point, "+
-					"so add the view to the app target by hand", manifest.IOSLayout)
+					"so add the view to the app target by hand", spec.IOSLayout)
 		}
 		if err := fg.GenerateFeature(env); err != nil {
 			return nil, err
@@ -219,7 +200,7 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 
 	// Wire the new module into the files that already exist.
 	applier := wire.NewApplier(root, dryRun)
-	for _, edit := range featureEdits(manifest, spec, feature, req) {
+	for _, edit := range featureEdits(spec, feature, req) {
 		if err := applier.Apply(edit); err != nil {
 			return nil, err
 		}
@@ -231,39 +212,15 @@ func AddFeature(manifest *model.Manifest, root string, req FeatureRequest, versi
 			"could not find a kmp-scaffold anchor comment in %s - wire the new module in by hand", missing))
 	}
 
-	// Record the feature, replacing any earlier entry with the same name.
-	record := model.Feature{
-		Name: feature.Name, Android: req.Android, Shared: req.Shared, IOS: req.IOS,
-		Presentation: req.Presentation, RootTab: req.RootTab,
-	}
-	updated := false
-	for i := range manifest.Features {
-		if manifest.Features[i].Name == feature.Name {
-			manifest.Features[i] = record
-			updated = true
-		}
-	}
-	if !updated {
-		manifest.Features = append(manifest.Features, record)
-	}
-	if req.RootTab && !model.Has(manifest.RootTabs, feature.Pascal) {
-		manifest.RootTabs = append(manifest.RootTabs, feature.Pascal)
-	}
-	report.Manifest = *manifest
-
-	if !dryRun {
-		if err := manifest.Save(root); err != nil {
-			return nil, fmt.Errorf("updating the project manifest: %w", err)
-		}
-	}
+	report.Features = []FeatureRequest{req}
 
 	return report, nil
 }
 
 // featureEdits lists every anchor insertion a new feature needs.
-func featureEdits(manifest *model.Manifest, spec model.Spec, f *FeatureCtx, req FeatureRequest) []wire.Edit {
+func featureEdits(spec model.Spec, f *FeatureCtx, req FeatureRequest) []wire.Edit {
 	var edits []wire.Edit
-	pkg := manifest.Package
+	pkg := spec.Package
 
 	// A root tab's entries belong to the inner (per-tab) NavDisplay; everything
 	// else is pushed above the shell by the outer one.
@@ -292,7 +249,7 @@ func featureEdits(manifest *model.Manifest, spec model.Spec, f *FeatureCtx, req 
 			},
 			wire.Edit{
 				Path: path.Join("buildSrc/src/main/kotlin",
-					model.LowerAlnum(manifest.Name)+".android.feature.gradle.kts"),
+					model.LowerAlnum(spec.Name)+".android.feature.gradle.kts"),
 				Anchor: wire.AnchorFeatureAPIs,
 				Lines: []string{
 					fmt.Sprintf(`add("implementation", project(":feature:%s:api"))`, f.Name),
@@ -316,7 +273,7 @@ func featureEdits(manifest *model.Manifest, spec model.Spec, f *FeatureCtx, req 
 	// A root tab additionally joins the shell: the roots set the back stacks are
 	// keyed by, the navigation item list, and core/ui's dependencies (which is
 	// where that list lives).
-	if req.Android && req.RootTab && manifest.AndroidLayout == "nav3-shell" {
+	if req.Android && req.RootTab && spec.AndroidLayout == "nav3-shell" {
 		icon := DefaultTabIcons[f.Name]
 		if icon == "" {
 			icon = "Widgets"
@@ -357,7 +314,7 @@ func featureEdits(manifest *model.Manifest, spec model.Spec, f *FeatureCtx, req 
 		})
 	}
 
-	if req.IOS && manifest.IOSLayout == IOSFeaturesLayout {
+	if req.IOS && spec.IOSLayout == IOSFeaturesLayout {
 		edits = append(edits, iosFeatureEdits(f, req)...)
 	}
 

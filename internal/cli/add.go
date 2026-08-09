@@ -9,10 +9,11 @@ import (
 	"strings"
 
 	"github.com/aaroncutress/kmp-scaffold/internal/catalog"
-	"github.com/aaroncutress/kmp-scaffold/internal/generator"
+	"github.com/aaroncutress/kmp-scaffold/internal/kmp"
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
 	"github.com/aaroncutress/kmp-scaffold/internal/render"
 	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
+	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 	"github.com/aaroncutress/kmp-scaffold/internal/tui"
 	"github.com/aaroncutress/kmp-scaffold/internal/wire"
 )
@@ -46,7 +47,7 @@ Flags:
 	}
 
 	var (
-		targets = fs.String("targets", "",
+		targets_ = fs.String("targets", "",
 			"Comma-separated: android, ios, shared (default: every one this project supports)")
 		present = fs.String("presentation", "", "above-nav, overlay, dialog or shell (a root tab)")
 		yes     = fs.Bool("yes", false, "Skip the wizard")
@@ -65,82 +66,66 @@ Flags:
 		return err
 	}
 
-	// By default a feature covers every side of the project it can.
-	iosSupported := manifest.IOS && generator.SupportsFeatures(generator.KindIOS, manifest.IOSLayout)
-	draft := tui.FeatureDraft{
-		Android:      manifest.Android,
-		IOS:          iosSupported,
-		Shared:       true,
-		Presentation: *present,
+	base, err := scaffold.Load(manifest.Template.ID)
+	if err != nil {
+		return err
 	}
-	if *targets != "" {
-		chosen := splitList(*targets)
-		for _, t := range chosen {
-			switch t {
-			case "android", "ios", "shared":
-			default:
-				return fmt.Errorf("unknown target %q - use android, ios or shared", t)
-			}
-		}
-		draft.Android = model.Has(chosen, "android")
-		draft.IOS = model.Has(chosen, "ios")
-		draft.Shared = model.Has(chosen, "shared")
+	template, ok := base.(scaffold.FeatureTemplate)
+	if !ok {
+		return fmt.Errorf("the %q template cannot add to a project it generated", base.Meta().ID)
 	}
-	if draft.Presentation == "" {
-		draft.Presentation = "above-nav"
-	}
-	draft.RootTab = draft.Presentation == "shell"
+	noun := template.FeatureNoun()
+
+	answers := scaffold.NewAnswers()
 	if positional := firstOperand(operands); positional != "" {
-		draft.Name = model.Kebab(positional)
+		answers.Project.Name = model.Kebab(positional)
 	}
 
-	spec := model.Spec{
-		Name:          manifest.Name,
-		Package:       manifest.Package,
-		Android:       manifest.Android,
-		IOS:           manifest.IOS,
-		AndroidLayout: manifest.AndroidLayout,
-		IOSLayout:     manifest.IOSLayout,
-		SharedUtils:   manifest.SharedUtils,
-		AndroidExtras: manifest.AndroidExtras,
-		Packs:         manifest.Packs,
-		RootTabs:      manifest.RootTabs,
+	// By default a feature covers every side of the project it can.
+	targets := kmp.DefaultTargets(manifest)
+	if *targets_ != "" {
+		targets = splitList(*targets_)
+		if err := kmp.ValidateTargets(targets); err != nil {
+			return err
+		}
+	}
+	answers.Set(kmp.QFeatureTargets, targets)
+	if *present != "" {
+		answers.Set(kmp.QFeaturePresentation, *present)
 	}
 
 	if *yes || !interactive() {
-		if draft.Name == "" {
-			return fmt.Errorf("give the feature a name, e.g. `kmp-scaffold add feature billing`")
+		if answers.Project.Name == "" {
+			return fmt.Errorf("give the %s a name, e.g. `kmp-scaffold add %s billing`", noun, noun)
 		}
-		if err := model.ValidateFeatureName(draft.Name); err != nil {
-			return fmt.Errorf("feature name: %w", err)
+		if err := model.ValidateFeatureName(answers.Project.Name); err != nil {
+			return fmt.Errorf("%s name: %w", noun, err)
 		}
-		if manifest.FindFeature(draft.Name) != nil {
-			return fmt.Errorf("this project already has a feature called %q", draft.Name)
+		if manifest.FindFeature(answers.Project.Name) != nil {
+			return fmt.Errorf("this project already has a %s called %q", noun, answers.Project.Name)
 		}
 	} else {
-		wizard, collected := tui.FeatureFlow(spec, *manifest, draft)
-		if _, err := wizard.Run(ctx); err != nil {
+		wizard := tui.FeatureFlow(template, manifest, answers)
+		answered, err := wizard.Run(ctx)
+		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
 				return errCancelled
 			}
 			return err
 		}
-		draft = *collected
-	}
-
-	if !draft.Android && !draft.IOS && !draft.Shared {
-		return fmt.Errorf("nothing to generate - pick at least one of android, ios or shared")
+		answers = answered
 	}
 
 	writer := render.NewWriter(root, *dryRun, *force)
-	report, err := generator.AddFeature(manifest, root, generator.FeatureRequest{
-		Name:         draft.Name,
-		Android:      draft.Android,
-		Shared:       draft.Shared,
-		IOS:          draft.IOS,
-		Presentation: draft.Presentation,
-		RootTab:      draft.RootTab,
-	}, Version, writer, *dryRun)
+	report, err := template.AddFeature(ctx, scaffold.FeatureRequest{
+		Manifest: manifest,
+		Root:     root,
+		Name:     answers.Project.Name,
+		Answers:  answers,
+		Writer:   writer,
+		Version:  Version,
+		DryRun:   *dryRun,
+	})
 	if err != nil {
 		return err
 	}
@@ -149,7 +134,8 @@ Flags:
 	if *dryRun {
 		fmt.Println(sBold.Render("Dry run - nothing was written."))
 	} else {
-		fmt.Println(sOK.Render("✔ ") + sBold.Render(draft.Name) + sMuted.Render(" added"))
+		fmt.Println(sOK.Render("✔ ") + sBold.Render(answers.Project.Name) + sMuted.Render(" added"))
+		printMigrationNotice(manifest)
 	}
 	fmt.Println()
 	printWriteSummary(writer, *verbose)
@@ -164,6 +150,17 @@ Flags:
 		fmt.Println(sMuted.Render("Sync Gradle to pick up the new modules."))
 	}
 	return nil
+}
+
+// printMigrationNotice explains a manifest that has just been upgraded in
+// place, because the new file cannot be read by an older kmp-scaffold.
+func printMigrationNotice(m *model.Manifest) {
+	if !m.Migrated {
+		return
+	}
+	fmt.Println("  " + sMuted.Render(fmt.Sprintf(
+		"· %s was upgraded to schema %d; earlier versions of kmp-scaffold will not read it.",
+		model.ManifestFile, model.ManifestSchema)))
 }
 
 func printWireSummary(results []wire.Result) {
@@ -218,7 +215,10 @@ Packs:
 
 	// Build a spec with only the new packs added, so the diff is exactly what
 	// these packs contribute.
-	spec := specFromManifest(manifest)
+	spec, _, err := kmp.SpecFrom(manifest)
+	if err != nil {
+		return err
+	}
 	before := map[string]bool{}
 	for _, lib := range catalog.Libraries() {
 		if lib.When(spec) {
@@ -237,10 +237,10 @@ Packs:
 	catalog.Normalise(&spec)
 
 	fmt.Println(sBold.Render("Resolving versions..."))
-	result := resolve.Run(ctx, spec, resolve.Options{
-		Channel: catalog.ParseChannel(*channel),
-		Offline: false,
-	})
+	req := kmp.RequestFor(spec)
+	req.Channel = catalog.ParseChannel(*channel)
+	req.Offline = false
+	result := resolve.Run(ctx, req)
 
 	var newLibs []catalog.Library
 	usedKeys := map[string]bool{}
@@ -286,13 +286,13 @@ Packs:
 		if err := appendToCatalog(root, versionLines, libraryLines); err != nil {
 			return err
 		}
+		if err := manifest.SetVars(kmp.VarsOf(spec)); err != nil {
+			return err
+		}
 		if err := manifest.Save(root); err != nil {
 			return err
 		}
-		manifest.Packs = spec.Packs
-		if err := manifest.Save(root); err != nil {
-			return err
-		}
+		printMigrationNotice(manifest)
 	}
 
 	fmt.Println()
@@ -310,23 +310,6 @@ Packs:
 		fmt.Println(sBold.Render("Dry run - the catalog was not modified."))
 	}
 	return nil
-}
-
-func specFromManifest(m *model.Manifest) model.Spec {
-	return model.Spec{
-		Name:          m.Name,
-		Package:       m.Package,
-		ApplicationID: m.ApplicationID,
-		Android:       m.Android,
-		IOS:           m.IOS,
-		AndroidLayout: m.AndroidLayout,
-		IOSLayout:     m.IOSLayout,
-		SharedUtils:   m.SharedUtils,
-		AndroidExtras: m.AndroidExtras,
-		Packs:         append([]string(nil), m.Packs...),
-		RootTabs:      m.RootTabs,
-		JVMTarget:     "11",
-	}
 }
 
 // appendToCatalog inserts new entries at the end of the [versions] and

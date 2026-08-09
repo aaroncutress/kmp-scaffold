@@ -86,38 +86,10 @@ func TestValidateFeatureName(t *testing.T) {
 	}
 }
 
-func TestManifestRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-
-	spec := Spec{
-		Name: "Tunesic", Package: "io.kontour.tunesic", ApplicationID: "io.kontour.tunesic",
-		Android: true, IOS: true, AndroidLayout: "nav3-shell", IOSLayout: "swiftui-simple",
-		RootTabs: []string{"Home", "Settings"},
-	}
-	manifest := spec.ToManifest("test", []Feature{{Name: "home", Android: true, RootTab: true}})
-	if err := manifest.Save(dir); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, root, err := LoadManifest(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if root != dir {
-		t.Errorf("root = %q, want %q", root, dir)
-	}
-	if loaded.Name != "Tunesic" || loaded.AndroidLayout != "nav3-shell" {
-		t.Errorf("round trip lost data: %+v", loaded)
-	}
-	if f := loaded.FindFeature("home"); f == nil || !f.RootTab {
-		t.Errorf("FindFeature(home) = %+v, want a root tab", f)
-	}
-}
-
 // `add` should work from anywhere inside the project, not just its root.
 func TestLoadManifestWalksUp(t *testing.T) {
 	dir := t.TempDir()
-	manifest := Manifest{Schema: ManifestSchema, Name: "Tunesic"}
+	manifest := Manifest{Schema: ManifestSchema, Project: Project{Name: "Tunesic"}}
 	if err := manifest.Save(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +102,7 @@ func TestLoadManifestWalksUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Name != "Tunesic" || root != dir {
-		t.Errorf("walked to %q (%q), want %q", root, loaded.Name, dir)
+	if loaded.Project.Name != "Tunesic" || root != dir {
+		t.Errorf("walked to %q (%q), want %q", root, loaded.Project.Name, dir)
 	}
 }

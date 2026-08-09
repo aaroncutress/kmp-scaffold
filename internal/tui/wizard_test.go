@@ -2,13 +2,15 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/aaroncutress/kmp-scaffold/internal/catalog"
+	"github.com/aaroncutress/kmp-scaffold/internal/kmp"
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
+	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 )
 
 func key(s string) tea.KeyMsg {
@@ -40,14 +42,6 @@ func typeText(w *Wizard, s string) {
 	}
 }
 
-func defaultSpec() model.Spec {
-	spec := model.Defaults()
-	spec.Packs = catalog.BasicPacks()
-	spec.SharedUtils = catalog.DefaultUtilities()
-	spec.AndroidExtras = catalog.DefaultExtras()
-	return spec
-}
-
 // A step that records how many times it was entered, so the tests can assert on
 // wizard navigation without a terminal.
 type probeStep struct {
@@ -56,15 +50,17 @@ type probeStep struct {
 	skip    bool
 }
 
-func (p *probeStep) Title() string        { return p.title }
-func (p *probeStep) Help() string         { return "" }
-func (p *probeStep) Skip(model.Spec) bool { return p.skip }
-func (p *probeStep) Enter(*model.Spec) tea.Cmd {
+func (p *probeStep) Title() string                      { return p.title }
+func (p *probeStep) Help() string                       { return "" }
+func (p *probeStep) Skip(*scaffold.Answers) bool        { return p.skip }
+func (p *probeStep) View(*scaffold.Answers, int) string { return p.title }
+
+func (p *probeStep) Enter(*scaffold.Answers) tea.Cmd {
 	p.entered++
 	return nil
 }
 
-func (p *probeStep) Update(msg tea.Msg, _ *model.Spec) (tea.Cmd, Outcome) {
+func (p *probeStep) Update(msg tea.Msg, _ *scaffold.Answers) (tea.Cmd, Outcome) {
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return nil, StayHere
@@ -78,14 +74,12 @@ func (p *probeStep) Update(msg tea.Msg, _ *model.Spec) (tea.Cmd, Outcome) {
 	return nil, StayHere
 }
 
-func (p *probeStep) View(model.Spec, int) string { return p.title }
-
 func TestWizardSkipsDisabledSteps(t *testing.T) {
 	first := &probeStep{title: "first"}
 	skipped := &probeStep{title: "skipped", skip: true}
 	last := &probeStep{title: "last"}
 
-	w := NewWizard("test", defaultSpec(), []Step{first, skipped, last})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{first, skipped, last})
 	w.Init()
 	w.Update(key("enter"))
 
@@ -101,7 +95,7 @@ func TestWizardGoesBack(t *testing.T) {
 	first := &probeStep{title: "first"}
 	second := &probeStep{title: "second"}
 
-	w := NewWizard("test", defaultSpec(), []Step{first, second})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{first, second})
 	w.Init()
 	w.Update(key("enter")) // -> second
 	w.Update(key("esc"))   // -> back to first
@@ -116,7 +110,7 @@ func TestWizardGoesBack(t *testing.T) {
 
 // Escape on the very first step means "give up", not "go nowhere".
 func TestWizardCancelsFromFirstStep(t *testing.T) {
-	w := NewWizard("test", defaultSpec(), []Step{&probeStep{title: "only"}})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{&probeStep{title: "only"}})
 	w.Init()
 	w.Update(key("esc"))
 
@@ -126,13 +120,13 @@ func TestWizardCancelsFromFirstStep(t *testing.T) {
 }
 
 func TestTextStepValidates(t *testing.T) {
-	step := &TextStep{
+	step := StepFor(scaffold.Question{
+		ID:       "name",
+		Kind:     scaffold.KindText,
 		Prompt:   "Name?",
-		Default:  func(model.Spec) string { return "" },
-		Validate: func(v string, _ model.Spec) error { return model.ValidateProjectName(v) },
-		Apply:    func(spec *model.Spec, v string) { spec.Name = v },
-	}
-	w := NewWizard("test", defaultSpec(), []Step{step, &probeStep{title: "next"}})
+		Validate: func(v any, _ *scaffold.Answers) error { return model.ValidateProjectName(v.(string)) },
+	})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{step, &probeStep{title: "next"}})
 	w.Init()
 
 	// An invalid value keeps us on the step and shows the reason.
@@ -145,7 +139,7 @@ func TestTextStepValidates(t *testing.T) {
 		t.Errorf("the validation error is not shown:\n%s", w.View())
 	}
 
-	// Correcting it lets us through, and the answer lands in the spec.
+	// Correcting it lets us through, and the answer lands in the bag.
 	for range 4 {
 		w.Update(key("backspace"))
 	}
@@ -155,21 +149,22 @@ func TestTextStepValidates(t *testing.T) {
 	if w.idx != 1 {
 		t.Error("a valid value did not advance the wizard")
 	}
-	if w.Spec().Name != "Tunesic" {
-		t.Errorf("Name = %q, want Tunesic", w.Spec().Name)
+	if got := w.Answers().Str("name"); got != "Tunesic" {
+		t.Errorf("name = %q, want Tunesic", got)
 	}
 }
 
 func TestCheckStepTogglesAndApplies(t *testing.T) {
-	step := &CheckStep{
+	step := StepFor(scaffold.Question{
+		ID:     "picks",
+		Kind:   scaffold.KindMultiSelect,
 		Prompt: "Pick",
-		Options: func(model.Spec) []Option {
-			return []Option{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}, {ID: "c", Label: "C"}}
+		Options: []scaffold.Option{
+			{ID: "a", Label: "A"}, {ID: "b", Label: "B"}, {ID: "c", Label: "C"},
 		},
-		Current: func(model.Spec) []string { return []string{"a"} },
-		Apply:   func(spec *model.Spec, ids []string) { spec.Packs = ids },
-	}
-	w := NewWizard("test", defaultSpec(), []Step{step, &probeStep{title: "next"}})
+		Default: []string{"a"},
+	})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{step, &probeStep{title: "next"}})
 	w.Init()
 
 	w.Update(key("down"))  // cursor on B
@@ -179,49 +174,45 @@ func TestCheckStepTogglesAndApplies(t *testing.T) {
 	w.Update(key("space")) // untick C again
 	w.Update(key("enter"))
 
-	got := w.Spec().Packs
+	got := w.Answers().Strs("picks")
 	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
-		t.Errorf("Packs = %v, want [a b]", got)
+		t.Errorf("picks = %v, want [a b]", got)
 	}
 }
 
 func TestCheckStepSelectAllAndNone(t *testing.T) {
-	step := &CheckStep{
+	step := StepFor(scaffold.Question{
+		ID:         "picks",
+		Kind:       scaffold.KindMultiSelect,
 		Prompt:     "Pick",
 		AllowEmpty: true,
-		Options: func(model.Spec) []Option {
-			return []Option{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}
-		},
-		Current: func(model.Spec) []string { return nil },
-		Apply:   func(spec *model.Spec, ids []string) { spec.Packs = ids },
-	}
-	w := NewWizard("test", defaultSpec(), []Step{step, &probeStep{title: "next"}})
+		Options:    []scaffold.Option{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}},
+	})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{step, &probeStep{title: "next"}})
 	w.Init()
 
 	w.Update(key("a"))
 	w.Update(key("enter"))
-	if len(w.Spec().Packs) != 2 {
-		t.Errorf("after 'a', Packs = %v, want both", w.Spec().Packs)
+	if got := w.Answers().Strs("picks"); len(got) != 2 {
+		t.Errorf("after 'a', picks = %v, want both", got)
 	}
 
 	w.Update(key("esc"))
 	w.Update(key("n"))
 	w.Update(key("enter"))
-	if len(w.Spec().Packs) != 0 {
-		t.Errorf("after 'n', Packs = %v, want none", w.Spec().Packs)
+	if got := w.Answers().Strs("picks"); len(got) != 0 {
+		t.Errorf("after 'n', picks = %v, want none", got)
 	}
 }
 
 func TestCheckStepRefusesEmptyUnlessAllowed(t *testing.T) {
-	step := &CheckStep{
-		Prompt: "Platforms",
-		Options: func(model.Spec) []Option {
-			return []Option{{ID: "android", Label: "Android"}}
-		},
-		Current: func(model.Spec) []string { return nil },
-		Apply:   func(spec *model.Spec, ids []string) { spec.Android = model.Has(ids, "android") },
-	}
-	w := NewWizard("test", defaultSpec(), []Step{step, &probeStep{title: "next"}})
+	step := StepFor(scaffold.Question{
+		ID:      "platforms",
+		Kind:    scaffold.KindMultiSelect,
+		Prompt:  "Platforms",
+		Options: []scaffold.Option{{ID: "android", Label: "Android"}},
+	})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{step, &probeStep{title: "next"}})
 	w.Init()
 
 	w.Update(key("enter"))
@@ -234,26 +225,56 @@ func TestCheckStepRefusesEmptyUnlessAllowed(t *testing.T) {
 }
 
 func TestSelectStepSkipsDisabledOptions(t *testing.T) {
-	step := &SelectStep{
+	step := StepFor(scaffold.Question{
+		ID:     "layout",
+		Kind:   scaffold.KindSelect,
 		Prompt: "Layout",
-		Options: func(model.Spec) []Option {
-			return []Option{
-				{ID: "a", Label: "A"},
-				{ID: "b", Label: "B", Disabled: true, DisabledNote: "not available"},
-				{ID: "c", Label: "C"},
-			}
+		Options: []scaffold.Option{
+			{ID: "a", Label: "A"},
+			{ID: "b", Label: "B", Disabled: true, DisabledNote: "not available"},
+			{ID: "c", Label: "C"},
 		},
-		Current: func(model.Spec) string { return "a" },
-		Apply:   func(spec *model.Spec, id string) { spec.AndroidLayout = id },
-	}
-	w := NewWizard("test", defaultSpec(), []Step{step, &probeStep{title: "next"}})
+		Default: "a",
+	})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{step, &probeStep{title: "next"}})
 	w.Init()
 
 	w.Update(key("down")) // must land on C, not the disabled B
 	w.Update(key("enter"))
 
-	if w.Spec().AndroidLayout != "c" {
-		t.Errorf("AndroidLayout = %q, want c (the disabled option was selectable)", w.Spec().AndroidLayout)
+	if got := w.Answers().Str("layout"); got != "c" {
+		t.Errorf("layout = %q, want c (the disabled option was selectable)", got)
+	}
+}
+
+// A list question is one comma-separated line, and comes back as a list.
+func TestListStepSplitsAndValidates(t *testing.T) {
+	step := StepFor(scaffold.Question{
+		ID:     "tabs",
+		Kind:   scaffold.KindList,
+		Prompt: "Tabs?",
+		Validate: func(v any, _ *scaffold.Answers) error {
+			if len(v.([]string)) < 2 {
+				return errors.New("name at least two")
+			}
+			return nil
+		},
+	})
+	w := NewWizard("test", scaffold.NewAnswers(), []Step{step, &probeStep{title: "next"}})
+	w.Init()
+
+	typeText(w, "Home")
+	w.Update(key("enter"))
+	if w.idx != 0 {
+		t.Error("a list that failed validation advanced the wizard")
+	}
+
+	typeText(w, ", Settings ,")
+	w.Update(key("enter"))
+
+	got := w.Answers().Strs("tabs")
+	if len(got) != 2 || got[0] != "Home" || got[1] != "Settings" {
+		t.Errorf("tabs = %#v, want [Home Settings] with the trailing comma dropped", got)
 	}
 }
 
@@ -270,22 +291,27 @@ func TestNewFlowRendersEveryStep(t *testing.T) {
 		{"ios only", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := defaultSpec()
-			spec.Name = "Tunesic"
-			spec.Dir = "tunesic"
-			spec.Package = "io.kontour.tunesic"
+			template := kmp.Template{}
+			answers := template.NewAnswers()
+			answers.Project.Name = "Tunesic"
+			answers.Project.Dir = "tunesic"
+			answers.Project.Package = "io.kontour.tunesic"
+
+			spec := kmp.Spec(answers)
 			spec.Android = tc.android
 			spec.IOS = tc.ios
+			spec.Offline = true
+			template.Bind(answers)
 
-			w, _ := NewFlow(context.Background(), spec)
+			w, _ := NewFlow(context.Background(), template, answers)
 			w.Init()
 
 			for i, step := range w.steps {
-				if step.Skip(w.spec) {
+				if step.Skip(w.answers) {
 					continue
 				}
-				step.Enter(&w.spec)
-				if got := step.View(w.spec, 80); got == "" && step.Title() == "" {
+				step.Enter(w.answers)
+				if got := step.View(w.answers, 80); got == "" && step.Title() == "" {
 					t.Errorf("step %d rendered nothing", i)
 				}
 				if step.Title() == "" {
@@ -296,18 +322,46 @@ func TestNewFlowRendersEveryStep(t *testing.T) {
 	}
 }
 
-func TestFeatureFlowCollectsADraft(t *testing.T) {
-	manifest := model.Manifest{
-		Schema: model.ManifestSchema, Name: "Tunesic", Package: "io.kontour.tunesic",
-		Android: true, IOS: true, AndroidLayout: "nav3-shell",
-		RootTabs: []string{"Home"},
-		Features: []model.Feature{{Name: "home", Android: true, RootTab: true}},
-	}
-	spec := defaultSpec()
-	spec.Name = manifest.Name
-	spec.AndroidLayout = manifest.AndroidLayout
+// Picking a template is its own screen, because the answer decides what the
+// rest of the wizard asks.
+func TestPickTemplate(t *testing.T) {
+	template := kmp.Template{}
+	w := PickTemplate([]scaffold.Template{template})
+	w.Init()
+	w.Update(key("enter"))
 
-	w, draft := FeatureFlow(spec, manifest, FeatureDraft{Android: true, Shared: true})
+	if got := w.Answers().Str(TemplateQuestion); got != kmp.ID {
+		t.Errorf("template = %q, want %q", got, kmp.ID)
+	}
+}
+
+func kmpManifest(t *testing.T) *model.Manifest {
+	t.Helper()
+	m, err := model.NewManifest("test", kmp.Template{}.Meta().Ref(),
+		model.Project{Name: "Tunesic", Package: "io.kontour.tunesic"},
+		kmp.Vars{
+			Android: true, IOS: true, AndroidLayout: "nav3-shell",
+			IOSLayout: "swiftui-features", RootTabs: []string{"Home"},
+		}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := model.NewFeature("home", kmp.FeatureVars{Android: true, RootTab: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.PutFeature(rec)
+	return &m
+}
+
+func TestFeatureFlowCollectsAnswers(t *testing.T) {
+	template := kmp.Template{}
+	manifest := kmpManifest(t)
+
+	answers := scaffold.NewAnswers()
+	answers.Set(kmp.QFeatureTargets, []string{"android", "shared"})
+
+	w := FeatureFlow(template, manifest, answers)
 	w.Init()
 
 	typeText(w, "billing")
@@ -315,18 +369,19 @@ func TestFeatureFlowCollectsADraft(t *testing.T) {
 	w.Update(key("enter")) // keep both -> presentation
 	w.Update(key("enter")) // full screen -> review
 
-	if draft.Name != "billing" {
-		t.Errorf("Name = %q, want billing", draft.Name)
+	if got := w.Answers().Project.Name; got != "billing" {
+		t.Errorf("name = %q, want billing", got)
 	}
-	if !draft.Android || !draft.Shared {
-		t.Errorf("draft = %+v, want both halves", draft)
+	targets := w.Answers().Strs(kmp.QFeatureTargets)
+	if !model.Has(targets, "android") || !model.Has(targets, "shared") {
+		t.Errorf("targets = %v, want both halves", targets)
 	}
-	if draft.Presentation != "above-nav" {
-		t.Errorf("Presentation = %q, want above-nav", draft.Presentation)
+	if got := w.Answers().Str(kmp.QFeaturePresentation); got != "above-nav" {
+		t.Errorf("presentation = %q, want above-nav", got)
 	}
 
 	// The review screen must name every file it is about to touch.
-	view := w.steps[len(w.steps)-1].View(w.spec, 100)
+	view := w.steps[len(w.steps)-1].View(w.answers, 100)
 	for _, want := range []string{"feature/billing/api", "settings.gradle.kts", "SharedModules.kt"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the review screen does not mention %q:\n%s", want, view)
@@ -335,11 +390,7 @@ func TestFeatureFlowCollectsADraft(t *testing.T) {
 }
 
 func TestFeatureFlowRejectsDuplicateNames(t *testing.T) {
-	manifest := model.Manifest{
-		Schema: model.ManifestSchema, Name: "Tunesic", Android: true,
-		Features: []model.Feature{{Name: "home", Android: true}},
-	}
-	w, _ := FeatureFlow(defaultSpec(), manifest, FeatureDraft{Android: true})
+	w := FeatureFlow(kmp.Template{}, kmpManifest(t), scaffold.NewAnswers())
 	w.Init()
 
 	typeText(w, "home")

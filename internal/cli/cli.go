@@ -23,6 +23,7 @@ Usage:
   kmp-scaffold new [directory]        Create a project (interactive by default)
   kmp-scaffold add feature [name]     Add a feature module and wire it in
   kmp-scaffold add library <pack>...  Add a library pack to the version catalog
+  kmp-scaffold templates [name]       List the templates new can generate from
   kmp-scaffold versions               Show which dependencies have newer releases
   kmp-scaffold version                Print the kmp-scaffold version
 
@@ -44,6 +45,8 @@ func Run(ctx context.Context, args []string) int {
 		err = runNew(ctx, args[1:])
 	case "add":
 		err = runAdd(ctx, args[1:])
+	case "templates", "template":
+		err = runTemplates(ctx, args[1:])
 	case "versions", "outdated":
 		err = runVersions(ctx, args[1:])
 	case "version", "--version", "-v":

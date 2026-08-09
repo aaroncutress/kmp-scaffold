@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/aaroncutress/kmp-scaffold/internal/model"
+	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 )
 
 // Outcome is what a step wants the wizard to do next.
@@ -26,32 +26,28 @@ const (
 )
 
 // Step is one screen of the wizard.
+//
+// Steps work on a scaffold.Answers rather than any particular project type, so
+// the same four widgets answer a built-in template's questions and a
+// file-based one's.
 type Step interface {
 	// Title is shown in the header.
 	Title() string
 	// Enter is called each time the step becomes active, so it can seed its
 	// state from answers given earlier.
-	Enter(spec *model.Spec) tea.Cmd
-	// Update handles a message and writes any answer back into spec.
-	Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome)
+	Enter(a *scaffold.Answers) tea.Cmd
+	// Update handles a message and writes any answer back into a.
+	Update(msg tea.Msg, a *scaffold.Answers) (tea.Cmd, Outcome)
 	// View renders the step body (the wizard draws the header and footer).
-	View(spec model.Spec, width int) string
+	View(a *scaffold.Answers, width int) string
 	// Help is the footer key hint.
 	Help() string
 	// Skip hides the step when earlier answers make it irrelevant.
-	Skip(spec model.Spec) bool
+	Skip(a *scaffold.Answers) bool
 }
 
 // Option is one choice in a select or checklist step.
-type Option struct {
-	ID    string
-	Label string
-	Desc  string
-	// Disabled options are shown greyed out and cannot be selected.
-	Disabled bool
-	// DisabledNote explains why.
-	DisabledNote string
-}
+type Option = scaffold.Option
 
 // ---------------------------------------------------------------------------
 // Text input
@@ -61,10 +57,10 @@ type Option struct {
 type TextStep struct {
 	Prompt   string
 	Hint     string
-	Default  func(spec model.Spec) string
-	Validate func(string, model.Spec) error
-	Apply    func(*model.Spec, string)
-	SkipIf   func(model.Spec) bool
+	Default  func(a *scaffold.Answers) string
+	Validate func(string, *scaffold.Answers) error
+	Apply    func(*scaffold.Answers, string)
+	SkipIf   func(*scaffold.Answers) bool
 
 	// value is what the user has typed. It starts empty even when there is a
 	// default: the default is shown as a placeholder and accepted by pressing
@@ -80,13 +76,13 @@ type TextStep struct {
 func (s *TextStep) Title() string { return s.Prompt }
 func (s *TextStep) Help() string  { return "enter confirm · esc back · ctrl+c quit" }
 
-func (s *TextStep) Skip(spec model.Spec) bool {
-	return s.SkipIf != nil && s.SkipIf(spec)
+func (s *TextStep) Skip(a *scaffold.Answers) bool {
+	return s.SkipIf != nil && s.SkipIf(a)
 }
 
-func (s *TextStep) Enter(spec *model.Spec) tea.Cmd {
+func (s *TextStep) Enter(a *scaffold.Answers) tea.Cmd {
 	if s.Default != nil {
-		s.fallback = s.Default(*spec)
+		s.fallback = s.Default(a)
 	}
 	if s.answered && s.value == "" {
 		// The user confirmed the default, then came back: show it so they can
@@ -104,7 +100,7 @@ func (s *TextStep) effective() string {
 	return s.fallback
 }
 
-func (s *TextStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
+func (s *TextStep) Update(msg tea.Msg, a *scaffold.Answers) (tea.Cmd, Outcome) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return nil, StayHere
@@ -117,14 +113,14 @@ func (s *TextStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
 	case tea.KeyEnter:
 		value := strings.TrimSpace(s.effective())
 		if s.Validate != nil {
-			if err := s.Validate(value, *spec); err != nil {
+			if err := s.Validate(value, a); err != nil {
 				s.err = err
 				return nil, StayHere
 			}
 		}
 		s.err = nil
 		s.answered = true
-		s.Apply(spec, value)
+		s.Apply(a, value)
 		return nil, GoNext
 	case tea.KeyBackspace:
 		// The first backspace on a placeholder makes it editable, minus its
@@ -150,7 +146,7 @@ func (s *TextStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
 	return nil, StayHere
 }
 
-func (s *TextStep) View(spec model.Spec, width int) string {
+func (s *TextStep) View(_ *scaffold.Answers, width int) string {
 	var b strings.Builder
 	if s.Hint != "" {
 		b.WriteString(styleMuted.Render(s.Hint) + "\n\n")
@@ -180,10 +176,10 @@ func (s *TextStep) View(spec model.Spec, width int) string {
 type SelectStep struct {
 	Prompt  string
 	Hint    string
-	Options func(spec model.Spec) []Option
-	Current func(spec model.Spec) string
-	Apply   func(*model.Spec, string)
-	SkipIf  func(model.Spec) bool
+	Options func(a *scaffold.Answers) []Option
+	Current func(a *scaffold.Answers) string
+	Apply   func(*scaffold.Answers, string)
+	SkipIf  func(*scaffold.Answers) bool
 
 	options []Option
 	cursor  int
@@ -192,14 +188,14 @@ type SelectStep struct {
 func (s *SelectStep) Title() string { return s.Prompt }
 func (s *SelectStep) Help() string  { return "↑/↓ move · enter select · esc back · ctrl+c quit" }
 
-func (s *SelectStep) Skip(spec model.Spec) bool {
-	return s.SkipIf != nil && s.SkipIf(spec)
+func (s *SelectStep) Skip(a *scaffold.Answers) bool {
+	return s.SkipIf != nil && s.SkipIf(a)
 }
 
-func (s *SelectStep) Enter(spec *model.Spec) tea.Cmd {
-	s.options = s.Options(*spec)
+func (s *SelectStep) Enter(a *scaffold.Answers) tea.Cmd {
+	s.options = s.Options(a)
 	if s.Current != nil {
-		current := s.Current(*spec)
+		current := s.Current(a)
 		for i, o := range s.options {
 			if o.ID == current {
 				s.cursor = i
@@ -209,7 +205,7 @@ func (s *SelectStep) Enter(spec *model.Spec) tea.Cmd {
 	return nil
 }
 
-func (s *SelectStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
+func (s *SelectStep) Update(msg tea.Msg, a *scaffold.Answers) (tea.Cmd, Outcome) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return nil, StayHere
@@ -230,7 +226,7 @@ func (s *SelectStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
 		if s.options[s.cursor].Disabled {
 			return nil, StayHere
 		}
-		s.Apply(spec, s.options[s.cursor].ID)
+		s.Apply(a, s.options[s.cursor].ID)
 		return nil, GoNext
 	}
 	return nil, StayHere
@@ -248,7 +244,7 @@ func (s *SelectStep) move(delta int) {
 	}
 }
 
-func (s *SelectStep) View(spec model.Spec, width int) string {
+func (s *SelectStep) View(_ *scaffold.Answers, width int) string {
 	var b strings.Builder
 	if s.Hint != "" {
 		b.WriteString(styleMuted.Render(s.Hint) + "\n\n")
@@ -285,10 +281,10 @@ func (s *SelectStep) View(spec model.Spec, width int) string {
 type CheckStep struct {
 	Prompt  string
 	Hint    string
-	Options func(spec model.Spec) []Option
-	Current func(spec model.Spec) []string
-	Apply   func(*model.Spec, []string)
-	SkipIf  func(model.Spec) bool
+	Options func(a *scaffold.Answers) []Option
+	Current func(a *scaffold.Answers) []string
+	Apply   func(*scaffold.Answers, []string)
+	SkipIf  func(*scaffold.Answers) bool
 	// AllowEmpty permits confirming with nothing ticked.
 	AllowEmpty bool
 
@@ -303,15 +299,15 @@ func (s *CheckStep) Help() string {
 	return "↑/↓ move · space toggle · a all · n none · enter confirm · esc back"
 }
 
-func (s *CheckStep) Skip(spec model.Spec) bool {
-	return s.SkipIf != nil && s.SkipIf(spec)
+func (s *CheckStep) Skip(a *scaffold.Answers) bool {
+	return s.SkipIf != nil && s.SkipIf(a)
 }
 
-func (s *CheckStep) Enter(spec *model.Spec) tea.Cmd {
-	s.options = s.Options(*spec)
+func (s *CheckStep) Enter(a *scaffold.Answers) tea.Cmd {
+	s.options = s.Options(a)
 	if s.selected == nil {
 		s.selected = map[string]bool{}
-		for _, id := range s.Current(*spec) {
+		for _, id := range s.Current(a) {
 			s.selected[id] = true
 		}
 	}
@@ -321,7 +317,7 @@ func (s *CheckStep) Enter(spec *model.Spec) tea.Cmd {
 	return nil
 }
 
-func (s *CheckStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
+func (s *CheckStep) Update(msg tea.Msg, a *scaffold.Answers) (tea.Cmd, Outcome) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return nil, StayHere
@@ -360,7 +356,7 @@ func (s *CheckStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
 			s.err = fmt.Errorf("pick at least one, or press esc to go back")
 			return nil, StayHere
 		}
-		s.Apply(spec, chosen)
+		s.Apply(a, chosen)
 		return nil, GoNext
 	}
 	return nil, StayHere
@@ -373,7 +369,7 @@ func (s *CheckStep) move(delta int) {
 	s.cursor = (s.cursor + delta + len(s.options)) % len(s.options)
 }
 
-func (s *CheckStep) View(spec model.Spec, width int) string {
+func (s *CheckStep) View(_ *scaffold.Answers, width int) string {
 	var b strings.Builder
 	if s.Hint != "" {
 		b.WriteString(styleMuted.Render(s.Hint) + "\n\n")
@@ -421,8 +417,8 @@ type ConfirmStep struct {
 	Prompt  string
 	Hint    string
 	Default bool
-	Apply   func(*model.Spec, bool)
-	SkipIf  func(model.Spec) bool
+	Apply   func(*scaffold.Answers, bool)
+	SkipIf  func(*scaffold.Answers) bool
 
 	value   bool
 	entered bool
@@ -431,11 +427,11 @@ type ConfirmStep struct {
 func (s *ConfirmStep) Title() string { return s.Prompt }
 func (s *ConfirmStep) Help() string  { return "y/n · enter confirm · esc back · ctrl+c quit" }
 
-func (s *ConfirmStep) Skip(spec model.Spec) bool {
-	return s.SkipIf != nil && s.SkipIf(spec)
+func (s *ConfirmStep) Skip(a *scaffold.Answers) bool {
+	return s.SkipIf != nil && s.SkipIf(a)
 }
 
-func (s *ConfirmStep) Enter(spec *model.Spec) tea.Cmd {
+func (s *ConfirmStep) Enter(*scaffold.Answers) tea.Cmd {
 	if !s.entered {
 		s.value = s.Default
 		s.entered = true
@@ -443,7 +439,7 @@ func (s *ConfirmStep) Enter(spec *model.Spec) tea.Cmd {
 	return nil
 }
 
-func (s *ConfirmStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
+func (s *ConfirmStep) Update(msg tea.Msg, a *scaffold.Answers) (tea.Cmd, Outcome) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return nil, StayHere
@@ -455,22 +451,22 @@ func (s *ConfirmStep) Update(msg tea.Msg, spec *model.Spec) (tea.Cmd, Outcome) {
 		return nil, GoBack
 	case "y", "Y":
 		s.value = true
-		s.Apply(spec, true)
+		s.Apply(a, true)
 		return nil, GoNext
 	case "n", "N":
 		s.value = false
-		s.Apply(spec, false)
+		s.Apply(a, false)
 		return nil, GoNext
 	case "left", "right", "tab", "h", "l":
 		s.value = !s.value
 	case "enter":
-		s.Apply(spec, s.value)
+		s.Apply(a, s.value)
 		return nil, GoNext
 	}
 	return nil, StayHere
 }
 
-func (s *ConfirmStep) View(spec model.Spec, width int) string {
+func (s *ConfirmStep) View(_ *scaffold.Answers, width int) string {
 	var b strings.Builder
 	if s.Hint != "" {
 		b.WriteString(styleMuted.Render(s.Hint) + "\n\n")

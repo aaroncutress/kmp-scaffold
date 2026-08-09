@@ -92,9 +92,10 @@ kmp-scaffold new my-app \
 
 | Command | What it does |
 | --- | --- |
-| `kmp-scaffold new [dir]` | Create a project. Interactive unless `--yes`. |
+| `kmp-scaffold new [dir]` | Create a project from a template. Interactive unless `--yes`. |
 | `kmp-scaffold add feature [name]` | Add a feature module and wire it into every place that needs to know about it. |
 | `kmp-scaffold add library <pack>…` | Resolve and add a library pack to the version catalog. |
+| `kmp-scaffold templates [name]` | List the templates `new` can generate from, or show what one asks. |
 | `kmp-scaffold versions` | Report which dependencies have newer releases. |
 | `kmp-scaffold version` | Print the tool's version. |
 
@@ -113,8 +114,8 @@ its full flag list.
   how version resolution works, release channels, and keeping a project current.
 - **[iOS architecture](docs/ios-architecture.md)** — the modular Swift package
   layout, how it maps onto the Android side, and the XCFramework it needs.
-- **[Extending kmp-scaffold](docs/extending.md)** — adding a new project layout,
-  a library pack, or a shared utility.
+- **[Extending kmp-scaffold](docs/extending.md)** — adding a template, a project
+  layout, a library pack, or a shared utility.
 - **[Troubleshooting](docs/troubleshooting.md)** — what to do when a build fails.
 
 ## How it decides versions
@@ -140,6 +141,14 @@ make check     # vet, gofmt and tests
 make build     # ./kmp-scaffold
 ```
 
-The generator has no hidden state: `go test ./internal/generator` builds
-complete projects offline into temporary directories and asserts on the output,
-so a template change that breaks the wiring fails the tests.
+The generator has no hidden state: `go test ./internal/kmp` builds complete
+projects offline into temporary directories and asserts on the output, so a
+change that breaks the wiring fails the tests. It also fingerprints three whole
+generated projects against `internal/kmp/testdata/golden-*.txt`, so a refactor
+meant to change nothing shows up as a diff rather than as a surprise. When
+output is *meant* to change, read the diff, satisfy yourself that every line of
+it was intended, then re-run with `-update`:
+
+```bash
+go test ./internal/kmp -run TestGolden -update
+```

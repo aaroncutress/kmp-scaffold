@@ -1,8 +1,93 @@
 # Extending kmp-scaffold
 
-The tool is built so the things you are most likely to want to change — a new
-project layout, a new library, a new shared utility — are additive. This page
-covers the four common cases.
+The tool is built so the things you are most likely to want to change are
+additive. This page covers the five common cases, from the largest to the
+smallest.
+
+## Adding a template
+
+A **template** owns a whole generatable project: the questions it asks, the
+files it writes, and what `add feature` does to a project it made. The Kotlin
+Multiplatform project this tool started life generating is one template,
+`kmp-mobile`, and it is the default.
+
+Templates live behind one interface, `scaffold.Template`
+(`internal/scaffold/template.go`), and register themselves from `init()`:
+
+```go
+package ktor
+
+func init() { scaffold.Register("ktor-service", func() scaffold.Template { return Template{} }) }
+
+type Template struct{}
+
+func (Template) Meta() scaffold.Meta {
+    return scaffold.Meta{
+        ID: "ktor-service", Label: "Ktor service",
+        Description: "A Ktor server with layered routes, Koin DI and a Dockerfile.",
+        Source:      scaffold.Source{Kind: scaffold.SourceBuiltin},
+        AsksPackage: true,
+        Sentinels:   []string{"build.gradle.kts"},
+    }
+}
+```
+
+The tool asks the universal questions itself — name, directory, and (when
+`AsksPackage` is set) the package — and the template supplies the rest as data:
+
+```go
+func (Template) Questions() []scaffold.Question {
+    return []scaffold.Question{{
+        ID:     "database",
+        Kind:   scaffold.KindSelect,
+        Prompt: "Which database?",
+        Options: []scaffold.Option{
+            {ID: "postgres", Label: "PostgreSQL", Desc: "Exposed and HikariCP."},
+            {ID: "none", Label: "No database"},
+        },
+        Default: "postgres",
+    }}
+}
+```
+
+`Question` has a declarative half and a Go half. The declarative fields —
+`Default`, `Options`, `AllowEmpty` — are enough for most questions. The hooks
+below them (`DefaultFor`, `OptionsFor`, `SkipFor`, `Validate`, `Apply`) win
+where both are given, and are how `kmp-mobile` computes its layout options from
+the generator registry: a newly registered layout appears in the wizard without
+the question list being touched.
+
+The rest of the interface is what happens with the answers:
+
+| Method | What it is for |
+| --- | --- |
+| `NewAnswers` | The seeded defaults the wizard starts from. |
+| `Normalise` | Repair cross-question dependencies, returning a note per change. |
+| `Versions` | Which version keys to resolve. Return an empty request to skip resolution entirely. |
+| `Check` | Add compatibility findings once versions are known. |
+| `Headlines` / `Summary` | What the resolve and review screens show. |
+| `Generate` | Write the project. |
+| `Vars` | What the project records about itself, for a later `add`. |
+| `NextSteps` | What to print once it exists. |
+
+Implement `scaffold.FeatureTemplate` as well and `kmp-scaffold add feature`
+works too. A template without it is not broken — `add` says the template cannot
+extend a project it generated, rather than half-generating something.
+
+`internal/kmp` is the worked example. It is a thin adapter: the generation lives
+in `internal/generator`, the libraries in `internal/catalog` and the answers in
+`model.Spec`, and the package's job is to present all of that as one template.
+
+### The answer bag
+
+Answers are a `scaffold.Answers`: `Project` for the universal ones, `Values` for
+one entry per question, and `State` for a template's own typed view. The KMP
+template keeps a `*model.Spec` in `State`, so its question hooks work with the
+real thing rather than reading everything back out of a map.
+
+Read `Values` through the accessors (`Str`, `Strs`, `Bool`, `Int`) rather than
+indexing it. Anything that has been through the project manifest comes back from
+`encoding/json` as `[]any` and `float64`, and the accessors handle both.
 
 ## Adding a project layout
 
@@ -63,7 +148,7 @@ func (iosFeatureGenerator) Generate(env *Env) error {
 
 ### 2. Add the templates
 
-Create `internal/templates/iosfeature.tmpl` with a `{{define}}` block per file:
+Create `internal/assets/iosfeature.tmpl` with a `{{define}}` block per file:
 
 ```
 {{define "iosfeature/FeatureView.swift"}}
@@ -178,7 +263,7 @@ A utility is a group of files in `sharedLogic` the wizard can toggle.
 enforced by `Normalise`, which pulls in dependencies and drops anything whose
 requirements are missing, explaining each change.
 
-**2. Add the templates** to `internal/templates/shared.tmpl`.
+**2. Add the templates** to `internal/assets/shared.tmpl`.
 
 **3. List the files** in `internal/generator/shared.go`:
 
@@ -233,19 +318,24 @@ remove it.
 
 ```
 internal/
-├── model/       the project spec, the manifest, naming helpers
+├── model/       the KMP spec, the project manifest, naming helpers
 ├── catalog/     every library, plugin, pack and version key
 ├── resolve/     Maven / SDK / Gradle lookups, version comparison, compatibility rules
 ├── render/      template execution, file writing, collision handling
-├── generator/   the generator registry and the concrete generators
-├── templates/   *.tmpl, embedded
 ├── wire/        anchor-based edits to existing files
+├── scaffold/    what a template is: Template, Question, Answers, the registry
+├── kmp/         the kmp-mobile template
+├── generator/   the layout registry and the concrete generators it drives
+├── assets/      *.tmpl, embedded
 ├── tui/         the wizard: steps, flows, styling
 └── cli/         command dispatch and flag parsing
 ```
 
-The dependency direction is one-way: `cli` → `tui` → `generator` → `render` →
-`catalog` → `model`. Nothing imports `cli`, and `model` imports nothing internal.
+The dependency direction is one-way: `cli` → `tui` → `scaffold` → `resolve` →
+`catalog` → `model`, with `kmp` sitting on top of `scaffold` and `generator`.
+Nothing imports `cli`, `model` imports nothing internal, and — the rule that
+keeps the interface honest — **`scaffold` must not import the packages that
+implement templates**. They register themselves from their own `init()`.
 
 ## Testing a change
 
@@ -253,9 +343,20 @@ The dependency direction is one-way: `cli` → `tui` → `generator` → `render
 make check     # vet, gofmt, tests
 ```
 
-`internal/generator/generate_test.go` generates complete projects offline into
+`internal/kmp/generate_test.go` generates complete projects offline into
 temporary directories and asserts on the output — that every expected file
 exists, that names agree across `App.kt`, the routes and the catalog, that
 optional files are absent when their feature is off, and that `add feature`
-wires every place it should. A template change that breaks the wiring fails
-there rather than in someone's IDE.
+wires every place it should. A change that breaks the wiring fails there rather
+than in someone's IDE.
+
+`internal/kmp/golden_test.go` is the other half: it fingerprints every file of
+three whole generated projects against `testdata/golden-*.txt`. That is the
+safety net for a refactor meant to change nothing — a stray whitespace change in
+a template, or a reordered resolver pass, shows up as a named diff. When the
+output is *meant* to change, read the diff, satisfy yourself that every line of
+it was intended, then re-run with `-update`:
+
+```bash
+go test ./internal/kmp -run TestGolden -update
+```

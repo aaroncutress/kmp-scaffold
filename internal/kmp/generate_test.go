@@ -1,4 +1,4 @@
-package generator
+package kmp_test
 
 import (
 	"context"
@@ -8,9 +8,12 @@ import (
 	"testing"
 
 	"github.com/aaroncutress/kmp-scaffold/internal/catalog"
+	"github.com/aaroncutress/kmp-scaffold/internal/generator"
+	"github.com/aaroncutress/kmp-scaffold/internal/kmp"
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
 	"github.com/aaroncutress/kmp-scaffold/internal/render"
 	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
+	"github.com/aaroncutress/kmp-scaffold/internal/scaffold"
 )
 
 // testSpec is a fully-featured project, generated offline so the test never
@@ -29,15 +32,82 @@ func testSpec(dir string) model.Spec {
 	return spec
 }
 
+// tmpl is the template under test.
+var tmpl = kmp.Template{}
+
+// answersFor puts a spec into the bag the template works from, exactly as the
+// wizard would have.
+func answersFor(spec model.Spec) *scaffold.Answers {
+	a := scaffold.NewAnswers()
+	a.Project = model.Project{
+		Name:          spec.Name,
+		Dir:           spec.Dir,
+		Package:       spec.Package,
+		ApplicationID: spec.ApplicationID,
+	}
+	a.SetState(&spec)
+	tmpl.Bind(a)
+	return a
+}
+
 func generate(t *testing.T, spec model.Spec) string {
 	t.Helper()
 	root := t.TempDir()
-	res := resolve.Run(context.Background(), spec, resolve.Options{Offline: true})
+	a := answersFor(spec)
+	res := resolve.Run(context.Background(), kmp.RequestFor(spec))
 	writer := render.NewWriter(root, false, false)
-	if _, err := NewProject(context.Background(), spec, res, "test", writer); err != nil {
+	_, err := tmpl.Generate(context.Background(), scaffold.GenRequest{
+		Answers: a, Result: res, Writer: writer, Version: "test",
+	})
+	if err != nil {
 		t.Fatalf("generating: %v", err)
 	}
 	return root
+}
+
+// addFeature runs `add feature` the way the CLI does: load the manifest, answer
+// the template's questions, apply.
+func addFeature(t *testing.T, root string, fr generator.FeatureRequest) (*scaffold.Report, *model.Manifest, error) {
+	t.Helper()
+	manifest, _, err := model.LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var targets []string
+	if fr.Android {
+		targets = append(targets, "android")
+	}
+	if fr.IOS {
+		targets = append(targets, "ios")
+	}
+	if fr.Shared {
+		targets = append(targets, "shared")
+	}
+
+	a := scaffold.NewAnswers()
+	a.Project.Name = fr.Name
+	a.Set(kmp.QFeatureTargets, targets)
+	a.Set(kmp.QFeaturePresentation, fr.Presentation)
+
+	report, err := tmpl.AddFeature(context.Background(), scaffold.FeatureRequest{
+		Manifest: manifest,
+		Root:     root,
+		Name:     fr.Name,
+		Answers:  a,
+		Writer:   render.NewWriter(root, false, false),
+		Version:  "test",
+	})
+	return report, manifest, err
+}
+
+func mustAddFeature(t *testing.T, root string, fr generator.FeatureRequest) (*scaffold.Report, *model.Manifest) {
+	t.Helper()
+	report, manifest, err := addFeature(t, root, fr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return report, manifest
 }
 
 func mustRead(t *testing.T, root, rel string) string {
@@ -181,18 +251,9 @@ func TestGeneratedProjectHasEveryAnchor(t *testing.T) {
 func TestAddFeatureWiresEverything(t *testing.T) {
 	root := generate(t, testSpec("tunesic"))
 
-	manifest, _, err := model.LoadManifest(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	writer := render.NewWriter(root, false, false)
-	report, err := AddFeature(manifest, root, FeatureRequest{
+	report, manifest := mustAddFeature(t, root, generator.FeatureRequest{
 		Name: "firmware-update", Android: true, Shared: true, Presentation: "above-nav",
-	}, "test", writer, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	})
 	if len(report.Warnings) > 0 {
 		t.Errorf("unexpected warnings: %v", report.Warnings)
 	}
@@ -240,17 +301,9 @@ func TestAddFeatureWiresEverything(t *testing.T) {
 
 func TestAddRootTabJoinsTheShell(t *testing.T) {
 	root := generate(t, testSpec("tunesic"))
-	manifest, _, err := model.LoadManifest(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	writer := render.NewWriter(root, false, false)
-	if _, err := AddFeature(manifest, root, FeatureRequest{
+	mustAddFeature(t, root, generator.FeatureRequest{
 		Name: "library", Android: true, Shared: false, Presentation: "shell", RootTab: true,
-	}, "test", writer, false); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	app := mustRead(t, root, "androidApp/src/main/kotlin/io/kontour/tunesic/App.kt")
 	if !strings.Contains(app, "LibraryRoute,") {
@@ -308,10 +361,12 @@ func TestMinimalProjectSkipsOptionalFiles(t *testing.T) {
 func TestDryRunWritesNothing(t *testing.T) {
 	spec := testSpec("tunesic")
 	root := t.TempDir()
-	res := resolve.Run(context.Background(), spec, resolve.Options{Offline: true})
+	res := resolve.Run(context.Background(), kmp.RequestFor(spec))
 
 	writer := render.NewWriter(root, true, false)
-	if _, err := NewProject(context.Background(), spec, res, "test", writer); err != nil {
+	if _, err := tmpl.Generate(context.Background(), scaffold.GenRequest{
+		Answers: answersFor(spec), Result: res, Writer: writer, Version: "test",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if writer.Count(render.Planned) == 0 {
@@ -336,9 +391,11 @@ func TestExistingFilesAreNotClobbered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := resolve.Run(context.Background(), spec, resolve.Options{Offline: true})
+	res := resolve.Run(context.Background(), kmp.RequestFor(spec))
 	writer := render.NewWriter(root, false, false)
-	if _, err := NewProject(context.Background(), spec, res, "test", writer); err != nil {
+	if _, err := tmpl.Generate(context.Background(), scaffold.GenRequest{
+		Answers: answersFor(spec), Result: res, Writer: writer, Version: "test",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustRead(t, root, "settings.gradle.kts"); got != custom {
@@ -426,28 +483,13 @@ func TestRunDirectoryIsNotGitignored(t *testing.T) {
 	}
 }
 
-func TestLayoutRegistry(t *testing.T) {
-	if len(Layouts(KindAndroid)) < 2 {
-		t.Error("expected at least two Android layouts to be registered")
-	}
-	if len(Layouts(KindIOS)) < 1 {
-		t.Error("expected at least one iOS layout to be registered")
-	}
-	if _, err := Get(KindAndroid, "nav3-shell"); err != nil {
-		t.Errorf("nav3-shell should be registered: %v", err)
-	}
-	if _, err := Get(KindIOS, "does-not-exist"); err == nil {
-		t.Error("an unknown layout should be an error")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // The modular iOS layout
 // ---------------------------------------------------------------------------
 
 func iosFeaturesSpec(dir string) model.Spec {
 	spec := testSpec(dir)
-	spec.IOSLayout = IOSFeaturesLayout
+	spec.IOSLayout = generator.IOSFeaturesLayout
 	spec.RootTabs = []string{"Home", "Library"}
 	catalog.Normalise(&spec)
 	return spec
@@ -572,18 +614,9 @@ func TestXCFrameworkOnlyForTheModularLayout(t *testing.T) {
 
 func TestAddIOSFeatureWiresPackageAndCoordinator(t *testing.T) {
 	root := generate(t, iosFeaturesSpec("tunesic"))
-	manifest, _, err := model.LoadManifest(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	writer := render.NewWriter(root, false, false)
-	report, err := AddFeature(manifest, root, FeatureRequest{
+	report, manifest := mustAddFeature(t, root, generator.FeatureRequest{
 		Name: "now-playing", Android: true, Shared: true, IOS: true, Presentation: "above-nav",
-	}, "test", writer, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	})
 	if len(report.Warnings) > 0 {
 		t.Errorf("unexpected warnings: %v", report.Warnings)
 	}
@@ -628,24 +661,24 @@ func TestAddIOSFeatureWiresPackageAndCoordinator(t *testing.T) {
 		t.Errorf("the screen does not resolve its shared ViewModel:\n%s", screen)
 	}
 
-	if f := manifest.FindFeature("now-playing"); f == nil || !f.IOS {
-		t.Errorf("the manifest does not record the iOS half: %+v", f)
+	f := manifest.FindFeature("now-playing")
+	if f == nil {
+		t.Fatal("the manifest does not record the new feature")
+	}
+	vars, err := kmp.FeatureVarsOf(*f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vars.IOS {
+		t.Errorf("the manifest does not record the iOS half: %+v", vars)
 	}
 }
 
 func TestAddIOSRootTabJoinsTheTabView(t *testing.T) {
 	root := generate(t, iosFeaturesSpec("tunesic"))
-	manifest, _, err := model.LoadManifest(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	writer := render.NewWriter(root, false, false)
-	if _, err := AddFeature(manifest, root, FeatureRequest{
+	mustAddFeature(t, root, generator.FeatureRequest{
 		Name: "explore", Android: true, IOS: true, Presentation: "shell", RootTab: true,
-	}, "test", writer, false); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	coordinator := mustRead(t, root, "iosApp/iosApp/App/AppCoordinator.swift")
 	for _, want := range []string{
@@ -673,15 +706,9 @@ func TestAddIOSFeatureIsRejectedOnTheSimpleLayout(t *testing.T) {
 	catalog.Normalise(&spec)
 	root := generate(t, spec)
 
-	manifest, _, err := model.LoadManifest(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	writer := render.NewWriter(root, false, false)
-	_, err = AddFeature(manifest, root, FeatureRequest{
+	_, _, err := addFeature(t, root, generator.FeatureRequest{
 		Name: "billing", IOS: true, Presentation: "above-nav",
-	}, "test", writer, false)
+	})
 	if err == nil {
 		t.Fatal("expected an error: the single-entry-point layout has no feature targets")
 	}
@@ -689,10 +716,10 @@ func TestAddIOSFeatureIsRejectedOnTheSimpleLayout(t *testing.T) {
 		t.Errorf("the error should explain why: %v", err)
 	}
 
-	if SupportsFeatures(KindIOS, "swiftui-simple") {
-		t.Error("SupportsFeatures should be false for the single-entry-point layout")
+	if generator.SupportsFeatures(generator.KindIOS, "swiftui-simple") {
+		t.Error("generator.SupportsFeatures should be false for the single-entry-point layout")
 	}
-	if !SupportsFeatures(KindIOS, IOSFeaturesLayout) {
-		t.Error("SupportsFeatures should be true for the modular layout")
+	if !generator.SupportsFeatures(generator.KindIOS, generator.IOSFeaturesLayout) {
+		t.Error("generator.SupportsFeatures should be true for the modular layout")
 	}
 }

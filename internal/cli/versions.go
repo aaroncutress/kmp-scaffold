@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/aaroncutress/kmp-scaffold/internal/catalog"
+	"github.com/aaroncutress/kmp-scaffold/internal/kmp"
 	"github.com/aaroncutress/kmp-scaffold/internal/model"
 	"github.com/aaroncutress/kmp-scaffold/internal/resolve"
 )
@@ -44,21 +45,18 @@ Flags:
 	manifest, root, err := model.LoadManifest(*dir)
 	if err != nil {
 		// Outside a project: still useful as "what would I get today?".
-		spec := model.Defaults()
-		spec.Packs = catalog.BasicPacks()
-		spec.SharedUtils = catalog.DefaultUtilities()
-		spec.AndroidExtras = catalog.DefaultExtras()
-		if *channel != "" {
-			spec.Channel = *channel
-		}
+		spec := defaultSpec(*channel)
 		fmt.Println(sMuted.Render("Not inside a kmp-scaffold project - showing what a new project would use.\n"))
-		result := resolve.Run(ctx, spec, resolveOptions(spec, "", ""))
+		result := resolve.Run(ctx, kmp.RequestFor(spec))
 		printVersionTable(result)
 		printResolveNotes(result)
 		return nil
 	}
 
-	spec := specFromManifest(manifest)
+	spec, _, err := kmp.SpecFrom(manifest)
+	if err != nil {
+		return err
+	}
 	if *channel != "" {
 		spec.Channel = *channel
 	} else {
@@ -70,8 +68,8 @@ Flags:
 		return err
 	}
 
-	fmt.Println(sBold.Render("Checking " + manifest.Name + " against the latest releases..."))
-	latest := resolve.Run(ctx, spec, resolveOptions(spec, "", ""))
+	fmt.Println(sBold.Render("Checking " + manifest.Project.Name + " against the latest releases..."))
+	latest := resolve.Run(ctx, kmp.RequestFor(spec))
 
 	type row struct{ key, have, want string }
 	var outdated, same []row
